@@ -1,0 +1,65 @@
+#gallery {
+   line-height:1;
+   -webkit-column-count:5; /* split it into 5 columns */
+   -webkit-column-gap:5px; /* give it a 5px gap between columns */
+   -moz-column-count:5;
+   -moz-column-gap:5px;
+   column-count:5;
+   column-gap:5px;
+}
+
+#gallery img {
+   width: 100% !important;
+   height: auto !important;
+   margin-bottom:5px; /* to match column gap */
+}
+
+figure {
+  position: relative;
+  transition: all 0.5s;
+}
+
+figure:hover{
+  opacity: 0.8;
+}
+
+figure:hover figcaption{
+  opacity : 0.8;
+}
+
+figcaption{
+  background-color: black;
+  color: white;
+  opacity: 0;
+  float: middle;
+  position: absolute;
+  text-align: center;
+    bottom: 0;
+    left: 0;
+    right: 0;
+}
+
+/* The container <div> - needed to position the dropdown content */
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+/* Links inside the dropdown */
+.dropdown-content a {
+  text-decoration: none;
+  display: block;
+}
+
+/* Dropdown Content (Hidden by Default) */
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background-color: #f1f1f1;
+  min-width: 280px;
+  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+  z-index: 1;
+}
+
+/* Show the dropdown menu on hover */
+.dropdown:hover .dropdown-content {display: block;}
+

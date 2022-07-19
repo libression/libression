@@ -1,0 +1,7 @@
+boto3
+botocore
+Wand
+fastapi
+uvicorn
+jinja2
+python-multipart
