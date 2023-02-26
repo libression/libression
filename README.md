@@ -11,11 +11,13 @@
 
 ### Minio
 - Minio can serve directories/files (`</path/of/where/you/store/media>`) as an S3 object store
+- That said, `minio.RELEASE.2022-05-26T05-48-41Z` is the last version that can directly serve 
+- directories/files as an S3 object store (and vice versa)
 - We need this for our web app to interact with this content
-- Install and run ([guide](https://min.io/download#_))
+- Vaguely follow this ([guide](https://min.io/download#_)), but install the archived version!
   - on Linux (amd64):
     - ```
-      wget https://dl.min.io/server/minio/release/linux-amd64/minio
+      wget -O minio https://dl.min.io/server/minio/release/linux-amd64/archive/minio.RELEASE.2022-05-26T05-48-41Z
 
       chmod +x minio
 
@@ -24,17 +26,9 @@
       ./minio server </path/of/where/you/store/media> \
         --console-address ":9001"
       ```
-  - on Mac
-    - ```
-      brew install minio/stable/minio
-      
-      MINIO_ROOT_USER=minioadmin \
-      MINIO_ROOT_PASSWORD=miniopassword \
-      minio server </path/of/where/you/store/media> \
-        --console-address ":9001"
-      ```
-  - on Windows (sort yourself out)
-  
+  - on Mac / Windows
+    - Not tested yet. Should be similar to above!
+
 ### Web app
 - [Install prerequisites for Wand](https://docs.wand-py.org/en/0.6.8/#requirements)
 - Install pip requirements (`pip install -r requirements.txt`)

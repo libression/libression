@@ -1,13 +1,46 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
     <title>Libression</title>
 </head>
-<body class="body">
-{% block content %}
-Landing Page
-{% endblock %}
-</body>
-</html>
 
+<body class="body">
+
+<div class="container">
+    <div class="navbar">
+        <ul class="nav navbar-nav">
+            <li><a href="{{ url_for('single_web_entrypoint') }}">Top directory</a></li>
+        </ul>
+    </div>
+</div>
+
+
+{% block content %}
+
+<div>
+    Current path: {{ cur_dir }}
+</div>
+
+
+
+<div id="gallery">
+    <form action="/update" method="post">
+        <input type="submit" value="Submit">
+        {% for key in keys %}
+        <figure>
+            <input type="checkbox" id="{{ key }}" name="impression" value="{{ key }}">
+            <img id="{{ key }}_display" src="{{ url_for('get_thumbnail', s3_key=key) }}">
+            <figcaption> {{ key.split('/')[-1] }}</figcaption>
+        </figure>
+        {% endfor %}
+    </form>
+</div>
+
+
+{% endblock %}
+
+
+</body>
+
+</html>
