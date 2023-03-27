@@ -1,4 +1,4 @@
-# Libression
+# libression
 ## About this project
 - Self-hosting media organiser
 - Meaning behind the name Libression:
@@ -31,6 +31,7 @@
 
 ### Web app
 - [Install prerequisites for Wand](https://docs.wand-py.org/en/0.6.8/#requirements)
-- Install pip requirements (`pip install -r requirements.txt`)
-- Run with command `python main.py`
+- Set up python env with poetry
+- Install dependencies (cd into directory and do `poetry install`)
+- Run app with command `poetry run main.py`
 - Open Web UI at `http://localhost:8000/`

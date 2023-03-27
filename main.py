@@ -5,8 +5,10 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi import responses
 
-from file import organiser, s3
+from libression import manager
 import uvicorn
+
+from libression.manager import update_caches, PageParamsRequest, PageParamsResponse
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
@@ -17,48 +19,34 @@ logging.basicConfig(
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
-organiser.init_buckets()
+manager.init_buckets()
 
 
 @app.get("/", response_class=responses.HTMLResponse)
-async def single_web_entrypoint(request: Request):
-    context = await render_navigation_with_path()
-    context["request"] = request
-    return templates.TemplateResponse("base.html", context=context)
+def single_web_entrypoint(request: Request) -> responses.Response:
+    return templates.TemplateResponse("base.html", {"request": request})
+
+
+@app.post("/refresh_page_params")
+def refresh_page_params(request: PageParamsRequest) -> PageParamsResponse:
+    page_metadata = manager.fetch_page_params(request)
+    update_caches(page_metadata.file_keys)
+    return page_metadata
 
 
 @app.get("/thumbnail/{s3_key:path}")
 def get_thumbnail(s3_key: str) -> responses.StreamingResponse:
-    contents = organiser.load_from_cache(s3_key)
+    contents = manager.from_cache(s3_key)
     logging.info(f"thumbnail for {s3_key} fetched")
-    output = responses.StreamingResponse(contents)
-    return output
+    return responses.StreamingResponse(contents)
 
 
 @app.get("/media/{s3_key:path}")
-async def get_resource(s3_key: str):
-    logging.info(f"processing media for {s3_key}")
-    s3_object = s3.get_object(key=s3_key, bucket_name=organiser.DATA_BUCKET)
+def get_resource(s3_key: str) -> responses.FileResponse:
+    s3_object = manager.get(s3_key)
     logging.info(f"media for {s3_key} processed")
     return responses.FileResponse(s3_object["Body"])
 
-
-async def render_navigation_with_path() -> dict:
-
-    nav_dirs, file_keys = organiser.get_rel_dirs_and_content(
-        rel_dir_no_leading_slash="",
-        get_subdir_content=False,
-        show_hidden_content=False,
-    )
-
-    organiser.ensure_cache_bulk(file_keys)
-
-    return dict(
-        keys=file_keys,
-        nav_dirs=nav_dirs,
-        cur_dir=".",
-        get_subdir_content=False,
-    )
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

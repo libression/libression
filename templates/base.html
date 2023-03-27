@@ -1,45 +1,31 @@
 <!DOCTYPE html>
+<script src="{{ url_for('static', path='/updater.js')}}"></script>
+<link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+
 <html>
 <head>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
-    <title>Libression</title>
+    <title>libression</title>
 </head>
 
-<body class="body">
-
-<div class="container">
-    <div class="navbar">
-        <ul class="nav navbar-nav">
-            <li><a href="{{ url_for('single_web_entrypoint') }}">Top directory</a></li>
-        </ul>
-    </div>
-</div>
-
-
-{% block content %}
+<body class="body" onload="refreshPage()">
 
 <div>
-    Current path: {{ cur_dir }}
+    <ul id="navigation">
+        <li id="home_dir" onclick="refreshPage()">root_dir</li>
+        <li id="outer_dir">.</li>
+        <li id="cur_dir">.</li>
+        <li id="inner_dir">
+            <div class="dropdown">
+                <a class="dropbtn">sub_dirs (expand)</a>
+                <div id="inner_dir_dropdown" class="dropdown-content"></div>
+            </div>
+        </li>
+    </ul>
+    <input id="show_subdirs" type="checkbox"/> sub_dir content
+    <input id="show_hidden_content" type="checkbox"/> hidden content
 </div>
 
-
-
-<div id="gallery">
-    <form action="/update" method="post">
-        <input type="submit" value="Submit">
-        {% for key in keys %}
-        <figure>
-            <input type="checkbox" id="{{ key }}" name="impression" value="{{ key }}">
-            <img id="{{ key }}_display" src="{{ url_for('get_thumbnail', s3_key=key) }}">
-            <figcaption> {{ key.split('/')[-1] }}</figcaption>
-        </figure>
-        {% endfor %}
-    </form>
-</div>
-
-
-{% endblock %}
-
+<div class="gallery"></div>
 
 </body>
 
