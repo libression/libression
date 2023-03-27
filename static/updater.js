@@ -8,12 +8,23 @@ function renderImpression(file_key){
 }
 
 function _fetchImpression(file_key){
+    checkbox = document.createElement("input");
+    checkbox.className = "selected_photos";
+    checkbox.type = "checkbox";
+    checkbox.value = file_key;
+
     img = new Image();
     img.src = window.location.href + "thumbnail/" + file_key;
 
+    figcaption = document.createElement("figcaption");
+    file_key_tokens = file_key.split("/")
+    figcaption.innerHTML = file_key_tokens[file_key_tokens.length - 1];
+
     impression = document.createElement("figure");
     impression.id = file_key
+    impression.appendChild(checkbox)
     impression.appendChild(img)
+    impression.appendChild(figcaption)
 
     return impression
 }
