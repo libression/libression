@@ -2,7 +2,7 @@
 name = "libression"
 version = "0.1.0"
 description = "self-hosting media organiser"
-authors = ["ern Chow <chilledgeek@gmail.com>"]
+authors = ["ern chow <chilledgeek@gmail.com>"]
 license = "MIT"
 readme = "README.md"
 
