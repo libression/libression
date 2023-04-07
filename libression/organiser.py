@@ -92,7 +92,7 @@ def copy(
     file_keys: Collection[str],
     target_dir: str,
     data_bucket: str = config.DATA_BUCKET,
-    cache_bucket: str = config.CACHE_BUCKET,        
+    cache_bucket: str = config.CACHE_BUCKET,
 ) -> None:
     """
     Assume:
@@ -111,7 +111,7 @@ def copy(
         cache_body = s3.get_body(
             _cache_key(original_path),
             cache_bucket,
-        )    
+        )
         cache_content = cache_body.read()
         s3.put(
             _cache_key(target_path),
@@ -222,7 +222,7 @@ def _file_movement_mapper(
     return {
         k: v for k, v in raw_mapper.items()
         if k != v
-    }    
+    }
 
 
 def _to_cache(
