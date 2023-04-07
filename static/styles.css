@@ -1,14 +1,14 @@
-#gallery {
+.gallery {
    line-height:1;
-   -webkit-column-count:5; /* split it into 5 columns */
+   -webkit-column-count:4; /* split it into 5 columns */
    -webkit-column-gap:5px; /* give it a 5px gap between columns */
    -moz-column-count:5;
    -moz-column-gap:5px;
-   column-count:5;
+   column-count:4;
    column-gap:5px;
 }
 
-#gallery img {
+.gallery img {
    width: 100% !important;
    height: auto !important;
    margin-bottom:5px; /* to match column gap */
@@ -16,19 +16,20 @@
 
 figure {
   position: relative;
-  transition: all 0.5s;
+  transition: all 0.3s;
 }
 
 figure:hover{
-  opacity: 0.8;
+  opacity: 0.6;
 }
 
 figure:hover figcaption{
-  opacity : 0.8;
+  opacity : 0.6;
 }
 
 figcaption{
   background-color: black;
+  font-size: xx-small;
   color: white;
   opacity: 0;
   float: middle;
@@ -60,6 +61,6 @@ figcaption{
   z-index: 1;
 }
 
-/* Show the dropdown menu on hover */
+/* Show the dropdown menu on click */
 .dropdown:hover .dropdown-content {display: block;}
 

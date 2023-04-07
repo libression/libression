@@ -1,13 +1,14 @@
 import logging
-from typing import Optional
 
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi import responses
-
-from file.organiser import Organiser
+from libression import organiser
 import uvicorn
+from libression import entities
+from libression.organiser import update_caches
+
 
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d %(levelname)-8s %(message)s',
@@ -15,80 +16,64 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S',
 )
 
-file_organiser = Organiser()
-templates = Jinja2Templates(directory="templates")
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+organiser.init_buckets()
 
 
+@app.get("/", response_class=responses.HTMLResponse)
+def single_web_entrypoint(request: Request) -> responses.Response:
+    return templates.TemplateResponse("base.html", {"request": request})
 
-@app.get("/")
-@app.post("/")
-async def index(request: Request):
-    return await render_navigation_with_path(request)
+
+@app.post("/refresh_page_params")
+def refresh_page_params(
+    request: entities.PageParamsRequest
+) -> entities.PageParamsResponse:
+
+    page_metadata = organiser.fetch_page_params(request)
+    update_caches(page_metadata.file_keys)
+    return page_metadata
 
 
 @app.get("/thumbnail/{s3_key:path}")
-def get_thumbnail(s3_key: str) -> responses.StreamingResponse:
-    contents = file_organiser.load_from_cache(s3_key)
+def thumbnail(s3_key: str) -> responses.StreamingResponse:
+    contents = organiser.load_cache(s3_key)
     logging.info(f"thumbnail for {s3_key} fetched")
-    output = responses.StreamingResponse(contents)
-    return output
+    return responses.StreamingResponse(contents)
 
 
 @app.get("/media/{s3_key:path}")
-async def get_resource(s3_key: str):
-    logging.info(f"processing media for {s3_key}")
-    s3_object = file_organiser.load_from_data_bucket(s3_key)
+def media(s3_key: str) -> responses.FileResponse:
+    content = organiser.get_content(s3_key)
     logging.info(f"media for {s3_key} processed")
-    return responses.FileResponse(s3_object["Body"])
+    return responses.FileResponse(content)
 
 
-@app.get('/storage/{rel_dir_no_leading_slash:path}', response_class=responses.HTMLResponse)
-@app.post('/storage/{rel_dir_no_leading_slash:path}', response_class=responses.HTMLResponse)
-async def render_navigation_with_path(
-        request: Request,
-        rel_dir_no_leading_slash: str = "",
-        show_hidden_content: bool = False,
-        get_subdir_content: Optional[str] = Form(default=None),
-):
-    if get_subdir_content is None:
-        get_subdir_content = False  # TODO if request.form.get('show_subfolder_content') else False
-    else:
-        get_subdir_content = True
-
-    nav_dirs, file_keys = file_organiser.get_rel_dirs_and_content(
-        rel_dir_no_leading_slash=rel_dir_no_leading_slash,
-        get_subdir_content=get_subdir_content,
-        show_hidden_content=show_hidden_content,
-    )
-
-    file_organiser.ensure_cache_bulk(file_keys)
-
-    template_params = dict(
-        request=request,
-        keys=file_keys,
-        nav_dirs=nav_dirs,
-        cur_dir=rel_dir_no_leading_slash or ".",
-        get_subdir_content=get_subdir_content,
-    )
-
-    return templates.TemplateResponse(
-        "navigator.html",
-        context=template_params,
-    )
+@app.post("/move")
+def move(
+    request: entities.FileActionRequest
+) -> entities.FileActionResponse:
+    organiser.move(request.file_keys, request.target_dir)
+    return entities.FileActionResponse(success=True)
 
 
-"""
-# draft function to update file (metadata? tags? dates? whatever)
-@app.route('/update', methods=['POST'])
-async def update():
-    selection = request.form.getlist("impression")
-    return render_template(
-        'update.html',
-        selection=selection,
-    )
-"""
+@app.post("/copy")
+def copy(
+    request: entities.FileActionRequest
+) -> entities.FileActionResponse:
+    organiser.copy(request.file_keys, request.target_dir)
+    return entities.FileActionResponse(success=True)
+
+
+@app.post("/delete")
+def delete(
+    request: entities.FileActionRequest
+) -> entities.FileActionResponse:
+    organiser.delete(request.file_keys)
+    return entities.FileActionResponse(success=True)
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
