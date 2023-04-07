@@ -1,17 +1,18 @@
 <!DOCTYPE html>
-<script src="{{ url_for('static', path='/updater.js')}}"></script>
+<script type="module" src="{{ url_for('static', path='/main.js')}}"></script>
 <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
 
 <html>
 <head>
     <title>libression</title>
+    <link rel="shortcut icon" href="#">
 </head>
 
-<body class="body" onload="refreshPage()">
+<body class="body">
 
 <div>
     <ul id="navigation">
-        <li id="home_dir" onclick="refreshPage()">root_dir</li>
+        <li id="home_dir">root_dir</li>
         <li id="outer_dir">.</li>
         <li id="cur_dir">.</li>
         <li id="inner_dir">
@@ -21,6 +22,15 @@
             </div>
         </li>
     </ul>
+    <ul id="actions">
+        <li id="copy_action">copy</li>
+        <li id="move_action">move</li>
+        <li id="delete_action">delete</li>
+        <li id="target_dir">target_dir: / 
+            <input id="target_dir_input" type="text">
+        </li>
+    </ul>
+
     <input id="show_subdirs" type="checkbox"/> sub_dir content
     <input id="show_hidden_content" type="checkbox"/> hidden content
 </div>

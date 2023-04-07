@@ -1,11 +1,11 @@
 import io
-from typing import Optional
+from typing import Collection, Optional
 import logging
 import boto3
 import botocore.response
 from boto3.resources.base import ServiceResource
 
-from libression.config import S3_ACCESS_KEY_ID, S3_SECRET, S3_ENDPOINT_URL, AWS_REGION
+from libression import config
 
 logger = logging.getLogger(__name__)
 
@@ -19,24 +19,17 @@ to each of your threads.
 """
 
 
-def get_client(
-        aws_access_key_id: str = S3_ACCESS_KEY_ID,
-        aws_secret_access_key: str = S3_SECRET,
-        endpoint_url: str = S3_ENDPOINT_URL,
-):
-    return boto3.client(
-        "s3",
-        aws_access_key_id=aws_access_key_id,
-        aws_secret_access_key=aws_secret_access_key,
-        endpoint_url=endpoint_url,
-    )
+def create_bucket(
+    bucket_name: str,
+    s3_client: Optional[ServiceResource] = None,
+) -> None:
 
+    s3_client = s3_client or _get_client()
 
-def create_bucket(bucket_name: str, s3_client: Optional[ServiceResource] = None) -> None:
-    s3_client = s3_client or get_client()
-
-    if bucket_name not in [bucket["Name"] for bucket in s3_client.list_buckets()["Buckets"]]:
-        location = {'LocationConstraint': AWS_REGION}
+    if bucket_name not in [
+        bucket["Name"] for bucket in s3_client.list_buckets()["Buckets"]
+    ]:
+        location = {'LocationConstraint': config.AWS_REGION}
         s3_client.create_bucket(
             Bucket=bucket_name,
             CreateBucketConfiguration=location,
@@ -44,13 +37,22 @@ def create_bucket(bucket_name: str, s3_client: Optional[ServiceResource] = None)
         )
 
 
-def delete_bucket(bucket_name: str, s3_client: Optional[ServiceResource] = None) -> None:
-    s3_client = s3_client or get_client()
+def delete_bucket(
+    bucket_name: str,
+    s3_client: Optional[ServiceResource] = None,
+) -> None:
+    s3_client = s3_client or _get_client()
     s3_client.delete_bucket(Bucket=bucket_name)
 
 
-def put(key: str, body: bytes, bucket_name: str, s3_client: Optional[ServiceResource] = None) -> None:
-    s3_client = s3_client or get_client()
+def put(
+    key: str,
+    body: bytes,
+    bucket_name: str,
+    s3_client: Optional[ServiceResource] = None,
+) -> None:
+
+    s3_client = s3_client or _get_client()
     bytes_io = io.BytesIO(body)
     s3_client.put_object(
         Body=bytes_io,
@@ -60,30 +62,25 @@ def put(key: str, body: bytes, bucket_name: str, s3_client: Optional[ServiceReso
     )
 
 
-def get(key: str, bucket_name: str, s3_client: Optional[ServiceResource] = None) -> dict:
-    s3_client = s3_client or get_client()
-    return s3_client.get_object(Bucket=bucket_name, Key=key)
-
-
 def get_body(
         key: str,
         bucket_name: str,
         s3_client: Optional[ServiceResource] = None
 ) -> botocore.response.StreamingBody:
+    s3_client = s3_client or _get_client()
 
-    s3_client = s3_client or get_client()
-    output = s3_client.get_object(Bucket=bucket_name, Key=key)
+    output = _get(key, bucket_name, s3_client)
     if "Body" in output:
         return output["Body"]
     raise FileNotFoundError
 
 
 def delete(
-        keys: list[str],
+        keys: Collection[str],
         bucket_name: str,
         s3_client: Optional[ServiceResource] = None,
 ) -> None:
-    s3_client = s3_client or get_client()
+    s3_client = s3_client or _get_client()
     s3_client.delete_objects(
         Bucket=bucket_name,
         Delete={
@@ -93,19 +90,14 @@ def delete(
     )
 
 
-def _kwargs_without_none(**kwargs) -> dict:
-    # boto3 doesn't like None kwargs...filter them
-    return {k: v for k, v in kwargs.items() if v is not None}
-
-
 def list_objects(
         bucket: str,
         max_keys: int = 1000,
         prefix_filter: Optional[str] = None,
-        get_all: bool = False,
+        get_all: bool = True,
         s3_client: Optional[ServiceResource] = None,
 ) -> list[str]:
-    s3_client = s3_client or get_client()
+    s3_client = s3_client or _get_client()
     response = s3_client.list_objects(
         Bucket=bucket,
         **_kwargs_without_none(MaxKeys=max_keys, Prefix=prefix_filter)
@@ -114,7 +106,9 @@ def list_objects(
     contents = response.get("Contents")
 
     if contents is None:
-        logger.info(f"list_objects in s3 bucket {bucket} returned no matched contents")
+        logger.info(
+            f"list_objects in s3 bucket {bucket} returned no matched contents"
+        )
         return []
     else:
         output = [x["Key"] for x in contents]
@@ -132,6 +126,32 @@ def list_objects(
     return output
 
 
+def _get_client(
+        aws_access_key_id: str = config.S3_ACCESS_KEY_ID,
+        aws_secret_access_key: str = config.S3_SECRET,
+        endpoint_url: str = config.S3_ENDPOINT_URL,
+):
+    return boto3.client(
+        "s3",
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key,
+        endpoint_url=endpoint_url,
+    )
+
+
+def _get(
+    key: str,
+    bucket_name: str,
+    s3_client: ServiceResource,
+) -> dict:
+    return s3_client.get_object(Bucket=bucket_name, Key=key)
+
+
+def _kwargs_without_none(**kwargs) -> dict:
+    # boto3 doesn't like None kwargs...filter them
+    return {k: v for k, v in kwargs.items() if v is not None}
+
+
 def _get_truncated_contents(
         bucket: str,
         next_key: str,
@@ -139,7 +159,7 @@ def _get_truncated_contents(
         prefix_filter: Optional[str] = None,
         s3_client: Optional[ServiceResource] = None,
 ) -> list[str]:
-    s3_client = s3_client or get_client()
+    s3_client = s3_client or _get_client()
     output = []
     truncated_flag = True
     while truncated_flag:
