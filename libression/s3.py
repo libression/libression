@@ -69,7 +69,7 @@ def get_body(
 ) -> botocore.response.StreamingBody:
     s3_client = s3_client or _get_client()
 
-    output = _get(key, bucket_name, s3_client)
+    output = s3_client.get_object(Bucket=bucket_name, Key=key)
     if "Body" in output:
         return output["Body"]
     raise FileNotFoundError
@@ -137,14 +137,6 @@ def _get_client(
         aws_secret_access_key=aws_secret_access_key,
         endpoint_url=endpoint_url,
     )
-
-
-def _get(
-    key: str,
-    bucket_name: str,
-    s3_client: ServiceResource,
-) -> dict:
-    return s3_client.get_object(Bucket=bucket_name, Key=key)
 
 
 def _kwargs_without_none(**kwargs) -> dict:
