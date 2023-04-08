@@ -1,6 +1,6 @@
 "use strict"
 
-async function fileAction(endpoint){
+async function fileAction(action){
     var photo_checkboxes = document.getElementsByClassName("selected_photos")
 
     var selected_keys = []
@@ -15,8 +15,9 @@ async function fileAction(endpoint){
     
     var target_dir = document.getElementById("target_dir_input").value
 
-    var url = window.location.href + endpoint
+    var url = window.location.href + "file_action"
     var payload = {
+        "action": action,
         "file_keys": selected_keys,
         "target_dir": target_dir
     }

@@ -58,27 +58,17 @@ def download(s3_key: str) -> Response:
     return Response(content.read())
 
 
-@app.post("/move")
-def move(
+@app.post("/file_action")
+def file_action(
     request: entities.FileActionRequest
 ) -> entities.FileActionResponse:
-    organiser.move(request.file_keys, request.target_dir)
-    return entities.FileActionResponse(success=True)
 
-
-@app.post("/copy")
-def copy(
-    request: entities.FileActionRequest
-) -> entities.FileActionResponse:
-    organiser.copy(request.file_keys, request.target_dir)
-    return entities.FileActionResponse(success=True)
-
-
-@app.post("/delete")
-def delete(
-    request: entities.FileActionRequest
-) -> entities.FileActionResponse:
-    organiser.delete(request.file_keys)
+    if request.action == entities.FileAction.copy:
+        organiser.copy(request.file_keys, request.target_dir)
+    elif request.action == entities.FileAction.move:
+        organiser.move(request.file_keys, request.target_dir)
+    elif request.action == entities.FileAction.delete:
+        organiser.delete(request.file_keys)
     return entities.FileActionResponse(success=True)
 
 

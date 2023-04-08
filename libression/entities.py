@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Optional
 from pydantic import BaseModel
 
@@ -14,7 +15,14 @@ class PageParamsResponse(BaseModel):
     outer_dir: str
 
 
+class FileAction(Enum):
+    move = "move"
+    copy = "copy"
+    delete = "delete"
+
+
 class FileActionRequest(BaseModel):
+    action: FileAction
     file_keys: list[str]
     target_dir: str
 
