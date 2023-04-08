@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi import responses
@@ -49,6 +49,13 @@ def media(s3_key: str) -> responses.FileResponse:
     content = organiser.get_content(s3_key)
     logging.info(f"media for {s3_key} processed")
     return responses.FileResponse(content)
+
+
+@app.get("/download/{s3_key:path}")
+def download(s3_key: str) -> Response:
+    content = organiser.get_content(s3_key)
+    logging.info(f"media for {s3_key} processed")
+    return Response(content.read())
 
 
 @app.post("/move")

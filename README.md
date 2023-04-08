@@ -30,7 +30,9 @@
     - Not tested yet. Should be similar to above!
 
 ### Web app
-- [Install prerequisites for Wand](https://docs.wand-py.org/en/0.6.8/#requirements)
+- [Install prerequisites for Wand](https://docs.wand-py.org/en/latest/#requirements)
+- Install ffmpeg and other encodings, e.g.
+    - `sudo dnf install ffmpeg ffmpeg-devel libheif`  # libheif not really used yet...
 - Set up python env with poetry
 - Install dependencies (cd into directory and do `poetry install`)
 - Run app with command `poetry run main.py`

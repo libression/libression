@@ -22,13 +22,20 @@ function _fetchImpression(file_key){
     var file_key_tokens = file_key.split("/")
     figcaption.innerHTML = file_key_tokens[file_key_tokens.length - 1]
 
+    var outer_impression = document.createElement("a")
+    outer_impression.href = window.location.href + "download/" + file_key
+    outer_impression.target="popup"
+    outer_impression.appendChild(checkbox)
+    outer_impression.id = file_key
+
     var impression = document.createElement("figure")
     impression.id = file_key
-    impression.appendChild(checkbox)
     impression.appendChild(img)
     impression.appendChild(figcaption)
 
-    return impression
+    outer_impression.appendChild(impression)
+
+    return outer_impression
 }
 
 function refreshGallery(file_keys){
