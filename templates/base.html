@@ -2,6 +2,15 @@
 <script type="module" src="{{ url_for('static', path='/main.js')}}"></script>
 <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
 
+<!-- Latest compiled and minified CSS -->
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
+
+<!-- jQuery library -->
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.3/jquery.min.js"></script>
+
+<!-- Latest compiled JavaScript -->
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js"></script>
+
 <html>
 <head>
     <title>libression</title>
@@ -10,18 +19,25 @@
 
 <body class="body">
 
+    <nav class="navbar navbar-inverse navbar-expand-sm">
+        <div class="container-fluid">
+          <ul class="nav navbar-nav">
+            <li class="active"><a id="par_dir"></a></li>
+            <li><a id="cur_dir"></a></li>
+            <li class="dropdown">
+                <a class="dropdown-toggle" data-toggle="dropdown">sub_dir
+                    <span class="caret"></span></a>
+                <ul class="dropdown-menu"></ul>
+            </l>
+          </ul>
+        </div>
+      </nav>
+
+
+
+
+
 <div>
-    <ul id="navigation">
-        <li id="home_dir">root_dir</li>
-        <li id="outer_dir">.</li>
-        <li id="cur_dir">.</li>
-        <li id="inner_dir">
-            <div class="dropdown">
-                <a class="dropbtn">sub_dirs (expand)</a>
-                <div id="inner_dir_dropdown" class="dropdown-content"></div>
-            </div>
-        </li>
-    </ul>
     <ul id="actions">
         <li id="copy_action">copy</li>
         <li id="move_action">move</li>

@@ -207,4 +207,4 @@ def test_fetch_page_params(
 
     assert output.file_keys == [file_key]
     assert output.inner_dirs == ["folder"]
-    assert output.outer_dir == ""
+    assert output.par_dir == ""

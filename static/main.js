@@ -3,33 +3,33 @@ import { fileAction } from './file_action.js'
 import { refreshGallery } from './gallery.js'
 
 
-function _updateDirListener(dom, dir_str, prefix=""){
-    dom.innerText = prefix.concat(dir_str)
-    dom.addEventListener('click', function(){
-        refreshPage(dir_str)
-    })
-    return dom
-}
-
 function _refreshInnerDirs(inner_dirs){
-    var new_inner_dirs = document.createElement("div")
-    new_inner_dirs.className = "dropdown-content"
+    var new_inner_dirs = document.createElement("ul")
+    new_inner_dirs.className = "dropdown-menu"
     inner_dirs?.forEach(function (inner_dir) {
-        var inner_dir_elem = document.createElement("a")
-        _updateDirListener(inner_dir_elem, inner_dir, "/")
-        new_inner_dirs.appendChild(inner_dir_elem)
+        var inner_dir_li = document.createElement("li")
+        var inner_dir_a = document.createElement("a")
+        inner_dir_a.text = "/".concat(inner_dir)
+        inner_dir_a.addEventListener('click', function(){
+            refreshPage(inner_dir)
+        })
+        inner_dir_li.appendChild(inner_dir_a)
+        new_inner_dirs.appendChild(inner_dir_li)
     })
 
-    var inner_dir_dom = document.getElementsByClassName("dropdown-content")
+    var inner_dir_dom = document.getElementsByClassName("dropdown-menu")
     if (inner_dir_dom){
         inner_dir_dom[0].replaceWith(new_inner_dirs)
     }
 }
 
-function _refreshOuterDirs(outer_dir){
-    var dom = document.querySelector("#outer_dir")
+function _refreshOuterDir(par_dir){
+    var dom = document.querySelector("#par_dir")
     var new_dom = dom.cloneNode(true)
-    _updateDirListener(new_dom, outer_dir, "par_dir: /")
+    new_dom.text = "par_dir"
+    new_dom.addEventListener('click', function(){
+        refreshPage(par_dir)
+    })
     dom.replaceWith(new_dom)  // clears old listeners
 }
 
@@ -46,7 +46,7 @@ function _updateDOM(response_dict){
     // Update DOM
     refreshGallery(response_dict["file_keys"])
     _refreshInnerDirs(response_dict["inner_dirs"])
-    _refreshOuterDirs(response_dict["outer_dir"])
+    _refreshOuterDir(response_dict["par_dir"])
 }
 
 async function refreshPage(cur_dir=""){
@@ -61,7 +61,7 @@ async function refreshPage(cur_dir=""){
     }
 
     var cur_dir_dom = document.querySelector("#cur_dir")
-    cur_dir_dom.innerText = "cur_dir: /".concat(cur_dir)
+    cur_dir_dom.text = "cur_dir: /".concat(cur_dir)
     _refreshCheckboxes("#show_subdirs", cur_dir)
     _refreshCheckboxes("#show_hidden_content", cur_dir)
 

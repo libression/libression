@@ -12,7 +12,7 @@ class PageParamsRequest(BaseModel):
 class PageParamsResponse(BaseModel):
     file_keys: list[str]
     inner_dirs: list[str]
-    outer_dir: str
+    par_dir: str
 
 
 class FileAction(Enum):

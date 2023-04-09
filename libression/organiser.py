@@ -191,14 +191,14 @@ def fetch_page_params(
     )
 
     dir_levels = request.cur_dir.split("/")
-    outer_dir = request.cur_dir
+    par_dir = request.cur_dir
     if dir_levels:
-        outer_dir = "/".join(dir_levels[:-1])
+        par_dir = "/".join(dir_levels[:-1])
 
     return entities.PageParamsResponse(
         file_keys=file_keys,
         inner_dirs=dirs,
-        outer_dir=outer_dir,
+        par_dir=par_dir,
     )
 
 
