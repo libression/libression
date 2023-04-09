@@ -1,4 +1,3 @@
-import io
 from typing import Collection, Optional
 import logging
 import boto3
@@ -47,15 +46,14 @@ def delete_bucket(
 
 def put(
     key: str,
-    body: bytes,
+    body: Optional[bytes],
     bucket_name: str,
     s3_client: Optional[ServiceResource] = None,
 ) -> None:
 
     s3_client = s3_client or _get_client()
-    bytes_io = io.BytesIO(body)
     s3_client.put_object(
-        Body=bytes_io,
+        Body=body,
         Bucket=bucket_name,
         Key=key,
         ACL='public-read-write',

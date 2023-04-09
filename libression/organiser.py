@@ -1,11 +1,8 @@
 from typing import Collection, Optional
-import io
 import logging
 import botocore
 
-from wand.image import Image
-
-from libression import config, entities, s3
+from libression import config, entities, impression, s3
 
 logger = logging.getLogger(__name__)
 
@@ -232,47 +229,15 @@ def _to_cache(
 ) -> Optional[bytes]:
     logging.info(f"getting content for {key}")
     original_content = s3.get_body(key=key, bucket_name=data_bucket)
-    return _to_cache_preloaded(key, original_content, cache_bucket)
 
+    file_format = key.split(".")[-1]
 
-def _to_cache_preloaded(
-    key: str,
-    content: bytes,
-    cache_bucket: str,
-) -> Optional[bytes]:
-
-    try:
-        logging.info(f"generating cache {key}")
-        cached_content = _generate_cache(content)
-        logging.info(f"putting cache {key}")
-        s3.put(
-            key=_cache_key(key),
-            body=cached_content,
-            bucket_name=cache_bucket,
-        )
-        return cached_content
-
-    except Exception as e:
-        logger.info(f"Exception: {e}, can't read key {_cache_key(key)}...")
-        return None
-
-
-def _generate_cache(
-    original_contents: botocore.response.StreamingBody,
-    width: int = config.CACHE_WIDTH,
-) -> bytes:
-    with Image(file=original_contents) as img:
-        converted = img.convert("jpg")
-
-        width_percent = (width / float(img.width))
-        height = int((float(img.height) * float(width_percent)))
-
-        converted.resize(width=width, height=height)
-
-        buf = io.BytesIO()
-        converted.save(file=buf)
-        byte_im = buf.getvalue()
-        return byte_im
+    return impression.to_cache_preloaded(
+        _cache_key(key),
+        original_content,
+        file_format,
+        cache_bucket,
+    )
 
 
 def _get_dirs_and_file_keys(

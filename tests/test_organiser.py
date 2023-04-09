@@ -58,21 +58,21 @@ def test_update_cache(
 
     # Arrange
     s3.put(
-        "to cache",
+        "to_cache.png",
         black_png,
         test_data_bucket_name,
     )
 
     # Act
     output = organiser.update_caches(
-        list_of_keys=["to cache"],
+        list_of_keys=["to_cache.png"],
         overwrite=False,
         data_bucket=test_data_bucket_name,
         cache_bucket=test_cache_bucket_name,
     )
 
     # Assert
-    assert output.get("to cache") is not None
+    assert output.get("to_cache.png") is not None
     len(s3.list_objects(test_cache_bucket_name)) == 1
 
 
