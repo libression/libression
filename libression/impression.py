@@ -5,7 +5,7 @@ import pyheif
 import logging
 import botocore
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from libression import config, s3
 
@@ -60,6 +60,8 @@ def _generate_cache(
         image = Image.frombytes(mode=i.mode, size=i.size, data=i.data)
     else:
         image = Image.open(original_contents)
+        if file_format in [FileFormat.jpeg, FileFormat.jpg]:
+            image = ImageOps.exif_transpose(image)
 
     if image is None:
         return None

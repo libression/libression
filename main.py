@@ -1,13 +1,10 @@
 import logging
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, responses
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from fastapi import responses
-from libression import organiser
+from libression import entities, organiser
 import uvicorn
-from libression import entities
-from libression.organiser import update_caches
 
 
 logging.basicConfig(
@@ -33,7 +30,7 @@ def refresh_page_params(
 ) -> entities.PageParamsResponse:
 
     page_metadata = organiser.fetch_page_params(request)
-    update_caches(page_metadata.file_keys)
+    organiser.update_caches(page_metadata.file_keys)
     return page_metadata
 
 

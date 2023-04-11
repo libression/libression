@@ -15,23 +15,28 @@ function _fetchImpression(file_key){
     checkbox.type = "checkbox"
     checkbox.value = file_key
 
-    var img = new Image()
+    var img = document.createElement("img")
+    img.className="w3-hover-opacity"
     img.src = window.location.href + "thumbnail/" + file_key
-
-    var figcaption = document.createElement("figcaption")
-    var file_key_tokens = file_key.split("/")
-    figcaption.innerHTML = file_key_tokens[file_key_tokens.length - 1]
+    img.alt = file_key
 
     var outer_impression = document.createElement("a")
+    outer_impression.className = "w3-quarter w3-container w3-tooltip"
     outer_impression.href = window.location.href + "download/" + file_key
     outer_impression.target="popup"
-    outer_impression.appendChild(checkbox)
     outer_impression.id = file_key
+
+    var tooltip = document.createElement("span")
+    tooltip.style = "position:absolute;left:50%;bottom:18px"
+    tooltip.className = "w3-text w3-tag w3-tiny w3-animate-opacity"
+    tooltip.innerText = file_key
+
+    outer_impression.append(tooltip)
 
     var impression = document.createElement("figure")
     impression.id = file_key
+    impression.appendChild(checkbox)
     impression.appendChild(img)
-    impression.appendChild(figcaption)
 
     outer_impression.appendChild(impression)
 
@@ -40,15 +45,16 @@ function _fetchImpression(file_key){
 
 function refreshGallery(file_keys){
     var new_inner_gallery = document.createElement("div")
-    new_inner_gallery.className = "gallery"
+    new_inner_gallery.className = "w3-row w3-border"
+    new_inner_gallery.id = "gallery"
     file_keys?.forEach(function (file_key) {
         var impression = _renderImpression(file_key)
         new_inner_gallery.appendChild(impression)
     })
 
-    var gallery = document.getElementsByClassName("gallery")
+    var gallery = document.getElementById("gallery")
     if (gallery){
-        gallery[0].replaceWith(new_inner_gallery)
+        gallery.replaceWith(new_inner_gallery)
     }
 }
 
