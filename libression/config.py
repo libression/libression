@@ -6,7 +6,7 @@ S3_SECRET = os.getenv("S3_SECRET", "miniopassword")
 S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "http://127.0.0.1:9000")
 AWS_REGION = "us-east-2"
 
-CACHE_WIDTH = 200
+CACHE_WIDTH = 400
 
 CACHE_BUCKET = "libressioncache"
 DATA_BUCKET = "testphotos"

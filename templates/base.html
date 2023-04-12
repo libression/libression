@@ -7,7 +7,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="shortcut icon" href="#">
 </head>
 
@@ -18,18 +18,42 @@
      id="navigation_bar">
 </div>
 
-<div>
-    <ul id="actions">
-        <li id="copy_action">copy</li>
-        <li id="move_action">move</li>
-        <li id="delete_action">delete</li>
-        <li id="target_dir">target_dir: / 
-            <input id="target_dir_input" type="text">
-        </li>
-    </ul>
+<div class="w3-bar w3-teal"
+     id="actions">
 
-    <input id="show_subdirs" type="checkbox"/> sub_dir content
-    <input id="show_hidden_content" type="checkbox"/> hidden content
+    <div class="w3-bar-item">show sub_dir
+        <input id="show_subdirs"
+               type="checkbox"
+               class="w3-check"/>
+    </div>
+    <div class="w3-bar-item">show hidden
+        <input id="show_hidden_content"
+               type="checkbox"
+               class="w3-check"/>
+    </div>
+   
+    <div class="w3-bar-item w3-right">
+        <i id="copy_action"
+           class="w3-button fa-solid fa-copy w3-tooltip">
+            <span style="position:absolute;left:0;bottom:18px"
+                  class="w3-text w3-tag w3-small">copy</span>
+        </i>
+        <i id="move_action"
+           class="w3-button fa-solid fa-truck-moving w3-tooltip">
+            <span style="position:absolute;left:0;bottom:18px"
+                  class="w3-text w3-tag w3-small">move</span>
+        </i>
+        <i id="delete_action"
+           class="w3-button fa-solid fa-fire-burner w3-tooltip">
+            <span style="position:absolute;left:0;bottom:18px"
+                  class="w3-text w3-tag w3-small">del</span>
+        </i>
+
+        <input id="target_dir_input"
+               class="w3-input w3-border w3-light-grey w3-round"
+               type="text" 
+               placeholder="Target Directory" />
+    </div>
 </div>
 
 <div class="w3-row w3-border" id="gallery"></div>

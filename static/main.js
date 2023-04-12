@@ -142,11 +142,11 @@ async function goHome(){await refreshPage("")}
 
 window.addEventListener('load', goHome())
 
-const copy_action = document.getElementById("copy_action");
+const copy_action = document.getElementById("copy_action")
 copy_action.addEventListener('click', copyKeys)
 
-const move_action = document.getElementById("move_action");
+const move_action = document.getElementById("move_action")
 move_action.addEventListener('click', moveKeys)
 
-const delete_action = document.getElementById("delete_action");
+const delete_action = document.getElementById("delete_action")
 delete_action.addEventListener('click', deleteKeys)
