@@ -10,10 +10,6 @@ function _renderImpression(file_key){
 }
 
 function _fetchImpression(file_key){
-    var checkbox = document.createElement("input")
-    checkbox.className = "selected_photos w3-check"
-    checkbox.type = "checkbox"
-    checkbox.value = file_key
 
     var img = document.createElement("img")
     img.className="w3-hover-opacity"
@@ -24,7 +20,6 @@ function _fetchImpression(file_key){
     var impression = document.createElement("a")
     impression.href = window.location.href + "download/" + file_key
     impression.target="popup"
-    impression.appendChild(checkbox)
     impression.appendChild(img)
 
     var tooltip = document.createElement("span")
@@ -32,10 +27,16 @@ function _fetchImpression(file_key){
     tooltip.className = "w3-text w3-tag w3-tiny w3-animate-opacity"
     tooltip.innerText = file_key
 
+    var checkbox = document.createElement("input")
+    checkbox.className = "selected_photos w3-check"
+    checkbox.type = "checkbox"
+    checkbox.value = file_key
+
     var outer_impression = document.createElement("a")
     outer_impression.className = "w3-quarter w3-container w3-tooltip"
     outer_impression.id = file_key
 
+    outer_impression.appendChild(checkbox)
     outer_impression.append(tooltip)
     outer_impression.appendChild(impression)
 
