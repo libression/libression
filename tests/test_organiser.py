@@ -73,7 +73,7 @@ def test_update_cache(
 
     # Assert
     assert output.get("to_cache.png") is not None
-    len(s3.list_objects(test_cache_bucket_name)) == 1
+    assert len(s3.list_objects(test_cache_bucket_name)) == 1
 
 
 def test_move(

@@ -8,14 +8,14 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.11"
-boto3 = "^1.26.81"
 botocore = "^1.29.81"
-fastapi = "^0.92.0"
-uvicorn = "^0.20.0"
+fastapi = "^0.95"
+uvicorn = "^0.22"
 jinja2 = "^3.1.2"
 python-multipart = "^0.0.6"
 pyheif = "^0.7.1"
 pillow = "^9.5.0"
+boto3 = "^1.26.137"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.2.1"

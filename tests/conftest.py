@@ -23,6 +23,7 @@ def black_png() -> bytes:
     filepath = os.path.join(
         os.path.dirname(__file__),
         "fixtures",
+        "test_photos",
         "black.png",
     )
     with open(filepath, "rb") as f:
