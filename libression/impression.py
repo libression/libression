@@ -7,7 +7,7 @@ import botocore
 
 from PIL import Image, ImageOps
 
-from libression import config, s3
+from libression import config, s3_old
 
 logger = logging.getLogger(__name__)
 

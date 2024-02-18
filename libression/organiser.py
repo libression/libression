@@ -2,7 +2,7 @@ from typing import Collection, Optional
 import logging
 import botocore
 
-from libression import config, entities, impression, s3
+from libression import config, entities, impression, s3_old
 
 logger = logging.getLogger(__name__)
 

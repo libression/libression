@@ -1,166 +1,271 @@
-from typing import Collection, Optional
-import logging
-import boto3
-import botocore.response
-from boto3.resources.base import ServiceResource
+import threading
+import urllib.parse
+from typing import IO, Any, Dict, List, Optional, Tuple, Union
 
-from libression import config
+import boto3.session
+from botocore.response import StreamingBody
+from mypy_boto3_s3.client import S3Client
+from mypy_boto3_s3.type_defs import CommonPrefixTypeDef, ObjectTypeDef
 
-logger = logging.getLogger(__name__)
-
-"""
-https://boto3.amazonaws.com/v1/documentation/api/1.14.31/guide/resources.html
-
-Note
-Low-level clients are thread safe. When using a low-level client,
-it is recommended to instantiate your client then pass that client object
-to each of your threads.
-"""
+# why 3? Long enough to account for service degradation, short enough to be a reasonable timeout
+CLIENT_LOCK_TIMEOUT_SECONDS = 3
 
 
-def create_bucket(
-    bucket_name: str,
-    s3_client: Optional[ServiceResource] = None,
-) -> None:
+class S3Connector:
+    def __init__(
+        self,
+        endpoint_url: Optional[str] = None,
+        aws_access_key_id: Optional[str] = None,
+        aws_secret_access_key: Optional[str] = None,
+        region_name: Optional[str] = None,
+    ):
+        self.endpoint_url = endpoint_url
+        self.aws_access_key_id = aws_access_key_id
+        self.aws_secret_access_key = aws_secret_access_key
+        self.region_name = region_name
 
-    s3_client = s3_client or _get_client()
+        self._client_lock = threading.RLock()
+        self._s3_client: Optional[S3Client] = None
 
-    if bucket_name not in [
-        bucket["Name"] for bucket in s3_client.list_buckets()["Buckets"]
-    ]:
-        location = {'LocationConstraint': config.AWS_REGION}
-        s3_client.create_bucket(
+    def _connect_s3_client(self) -> S3Client:
+        # lock the client creation, because this is not thread safe
+        # THIS MUST BE RELEASED. DO NOT EARLY RETURN FROM THIS FUNCTION
+        locked = self._client_lock.acquire(timeout=CLIENT_LOCK_TIMEOUT_SECONDS)
+        if not locked:
+            if self._s3_client is not None:
+                # this is SAFE because we didn't acquire the lock, otherwise we CAN NOT
+                # early return without RELEASING the lock
+                return self._s3_client
+            raise RuntimeError(f"Failed to acquire client creation lock (timeout {CLIENT_LOCK_TIMEOUT_SECONDS}s)")
+
+        try:
+            if self._s3_client is None:
+                # we create own instace of session object because otherwise boto3 uses
+                # a global default -- the problem with this is that it means that even when
+                # we have separate instances of this `S3Connector` object, they're using a global
+                # shared state; but the separate instances have their own locks so the lock
+                # won't effectively guard access to the global shared state.
+                session = boto3.session.Session(
+                    region_name=self.region_name,
+                    aws_access_key_id=self.aws_access_key_id,
+                    aws_secret_access_key=self.aws_secret_access_key,
+                )
+                self._s3_client = session.client(
+                    "s3",
+                    endpoint_url=self.endpoint_url,
+                )
+        finally:
+            # no except here, because we want to let these errors
+            # bubble up, we just need to clean up the lock
+            self._client_lock.release()
+
+        return self._s3_client
+
+    def put(
+        self,
+        content: Union[bytes, IO[bytes], StreamingBody],
+        item_key: str,
+        bucket_name: str,
+        content_type: Optional[str] = None,
+    ) -> None:
+        """
+        Upload content to s3
+
+        Parameters:
+            `content` Union[bytes, IO[bytes], StreamingBody]: the file content to upload
+            `item_key` str: file path in s3
+            `bucket_name` (optional str): bucket name in s3
+        """
+
+        client = self._connect_s3_client()
+
+        non_default_args: dict[str, Any] = {}
+        if content_type:
+            non_default_args["ContentType"] = content_type
+
+        client.put_object(
+            Body=content,
+            Key=item_key,
             Bucket=bucket_name,
-            CreateBucketConfiguration=location,
-            ACL='public-read-write',
+            ACL="bucket-owner-full-control",
+            **non_default_args,
         )
 
 
-def delete_bucket(
-    bucket_name: str,
-    s3_client: Optional[ServiceResource] = None,
-) -> None:
-    s3_client = s3_client or _get_client()
-    s3_client.delete_bucket(Bucket=bucket_name)
+    def _list(
+        self,
+        key_prefix: str,
+        *,
+        max_items: int,
+        bucket_name: Optional[str] = None,
+        delimiter: str = "",
+    ) -> Tuple[List[ObjectTypeDef], List[CommonPrefixTypeDef]]:
 
+        bucket = self._get_bucket(bucket_name)
+        client = self._connect_s3_client()
 
-def put(
-    key: str,
-    body: Optional[bytes],
-    bucket_name: str,
-    s3_client: Optional[ServiceResource] = None,
-) -> None:
+        next_flag = True
+        contents = []
+        prefixes = []
+        # We use a dict here to do kwargs unpacking to the call because defaulting ContinuationToken
+        # to an empty string isn't accepted by the API
+        token: Dict[str, str] = {}
 
-    s3_client = s3_client or _get_client()
-    s3_client.put_object(
-        Body=body,
-        Bucket=bucket_name,
-        Key=key,
-        ACL='public-read-write',
-    )
+        while next_flag:
+            response = client.list_objects_v2(
+                Bucket=bucket,
+                Prefix=key_prefix,
+                Delimiter=delimiter,
+                MaxKeys=max_items,
+                **token,  # type: ignore[arg-type]
+            )
+            next_flag = response["IsTruncated"]
+            token["ContinuationToken"] = response.get("NextContinuationToken", "")  # it won't be there at the end
+            contents.extend(response.get("Contents", []))
+            prefixes.extend(response.get("CommonPrefixes", []))
 
+        return contents, prefixes
 
-def get_body(
-        key: str,
-        bucket_name: str,
-        s3_client: Optional[ServiceResource] = None
-) -> botocore.response.StreamingBody:
-    s3_client = s3_client or _get_client()
+    def _list_with_delimiter(
+        self, key_prefix: str, delimiter: str, bucket_name: Optional[str] = None
+    ) -> List[CommonPrefixTypeDef]:
+        return self._list(key_prefix, bucket_name=bucket_name, delimiter=delimiter)[1]
 
-    output = s3_client.get_object(Bucket=bucket_name, Key=key)
-    if "Body" in output:
-        return output["Body"]
-    raise FileNotFoundError
+    def _list_without_delimiter(self, key_prefix: str, bucket_name: Optional[str] = None) -> List[ObjectTypeDef]:
+        return self._list(key_prefix, bucket_name=bucket_name)[0]
 
+    def list_prefixes(self, delimiter: str, prefix: str = "", bucket_name: Optional[str] = None) -> List[str]:
+        """
+        Given a prefix delimiter, and optionally a prefix, list all the prefixes matching up to delimiter
+        """
+        if delimiter == "":
+            raise ValueError("Empty string delimiter will not give the expected behaviour")
+        return [o["Prefix"] for o in self._list_with_delimiter(prefix, delimiter, bucket_name)]
 
-def delete(
-        keys: Collection[str],
-        bucket_name: str,
-        s3_client: Optional[ServiceResource] = None,
-) -> None:
-    s3_client = s3_client or _get_client()
-    s3_client.delete_objects(
-        Bucket=bucket_name,
-        Delete={
-            "Objects": [{"Key": key} for key in keys],
-            "Quiet": True,
-        },
-    )
+    def list_objects(self, key_prefix: str, bucket_name: Optional[str] = None) -> List[str]:
+        """
+        Get the list of objects in a prefix.
+        Parameters:
+            'key_prefix': Limits the response to keys that begin with the specified prefix.
+            `bucket_name` (optional str): S3 bucket name
+        """
+        return [o["Key"] for o in self._list_without_delimiter(key_prefix, bucket_name)]
 
+    def list_objects_with_size(self, key_prefix: str, bucket_name: Optional[str] = None) -> Dict[str, int]:
+        """
+        Get the list of objects in a prefix.
+        Parameters:
+            'key_prefix': Limits the response to keys that begin with the specified prefix.
+            `bucket_name` (optional str): S3 bucket name
+        """
+        return {o["Key"]: o["Size"] for o in self._list_without_delimiter(key_prefix, bucket_name)}
 
-def list_objects(
-        bucket: str,
-        max_keys: int = 1000,
-        prefix_filter: Optional[str] = None,
-        get_all: bool = True,
-        s3_client: Optional[ServiceResource] = None,
-) -> list[str]:
-    s3_client = s3_client or _get_client()
-    response = s3_client.list_objects(
-        Bucket=bucket,
-        **_kwargs_without_none(MaxKeys=max_keys, Prefix=prefix_filter)
-    )
+    def list_uri_objects_with_size(self, uri: str) -> Dict[str, int]:
+        bucket, path = self.parse_uri(uri)
+        return self.list_objects_with_size(path, bucket)
 
-    contents = response.get("Contents")
+    def object_size(self, key: str, bucket_name: Optional[str] = None) -> int:
+        """
+        Get the size of the requested object in bytes.
+        Throws ValueError if the key is not found
+        """
+        contents = self._list_without_delimiter(key, bucket_name)
 
-    if contents is None:
-        logger.info(
-            f"list_objects in s3 bucket {bucket} returned no matched contents"
+        if len(contents) == 0:
+            raise ValueError(f"Key '{key}' not found!")
+
+        [content] = contents
+
+        if content["Key"] != key:
+            raise ValueError(f"Returned information for a key other than '{key}'")
+
+        return content["Size"]
+
+    def get(self, item_key: str, bucket_name: Optional[str] = None) -> bytes:
+        """
+        Get content from s3
+
+        Parameters:
+            `item_key` str: file path
+            `bucket_name` (optional str): bucket name
+
+        Returns:
+            bytes: file bytes
+        """
+        bucket = self._get_bucket(bucket_name)
+        client = self._connect_s3_client()
+        response = client.get_object(Key=item_key, Bucket=bucket)
+        body = response["Body"].read()
+        return body
+
+    def parse_uri(self, uri: str) -> Tuple[str, str]:
+        """
+        I have a uri like s3://bucket/path/to/key
+        and I want to get the bucket and path
+        """
+        # ParseResult object is immutable
+        parsed = urllib.parse.urlparse(uri)._asdict()
+        bucket = parsed["netloc"]
+        if not parsed["scheme"].startswith("s3"):
+            raise ValueError("Must be an s3 URI scheme")
+        parsed["scheme"] = ""
+        parsed["netloc"] = ""
+        # path needs lstrip after reconstruction because in a uri there will not be a leading slash
+        # but this will generate a uri with a leading slash
+        path = urllib.parse.ParseResult(**parsed).geturl().lstrip("/")
+        return bucket, path
+
+    def get_uri(self, uri: str) -> bytes:
+        """
+        I have a uri like s3://bucket/path/to/key
+        and I want to get the object bytes
+        """
+        bucket, path = self.parse_uri(uri)
+        return self.get(path, bucket)
+
+    def delete(self, item_key: str, bucket_name: Optional[str] = None) -> None:
+        """
+        Delete file content from s3
+
+        Parameters:
+            `item_key` str: file path
+            `bucket_name` (optional str): bucket name
+        """
+        bucket = self._get_bucket(bucket_name)
+        client = self._connect_s3_client()
+
+        client.delete_object(Bucket=bucket, Key=item_key)
+
+    def copy(
+        self, file_path: str, destination_path: str, destination_bucket: str, source_bucket: Optional[str] = None
+    ) -> None:
+        """
+        Get content from s3, the assumption is that buckets are within the same S3
+
+        Parameters:
+            `file_path` str: origin file path
+            `destination_path` str: destination file path
+            `destination_bucket` str: destination bucket name
+            `source_bucket` (optional str): source bucket name if applicable, if not self.default_bucket_name
+                will be used
+        """
+        source_bucket_name = self._get_bucket(source_bucket)
+
+        content = self.get(file_path, bucket_name=source_bucket_name)
+        self.put(content, destination_path, bucket_name=destination_bucket)
+
+    def get_presigned_url(self, key: str, bucket_name: Optional[str] = None, expires_in: int = 900) -> Optional[str]:
+        """
+        Get presigned url
+
+        Parameters:
+            `key` str: S3 key
+            `bucket_name` (optional str): S3 bucket name
+            `expires_in` int: expiration time in seconds
+        """
+        bucket = self._get_bucket(bucket_name)
+        client = self._connect_s3_client()
+
+        return client.generate_presigned_url(
+            "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=expires_in
         )
-        return []
-    else:
-        output = [x["Key"] for x in contents]
-
-    if response.get("IsTruncated") and get_all:
-        extra_data = _get_truncated_contents(
-            bucket,
-            response.get("NextMarker"),
-            max_keys,
-            prefix_filter,
-        )
-
-        output.extend(extra_data)
-
-    return output
-
-
-def _get_client(
-        aws_access_key_id: str = config.S3_ACCESS_KEY_ID,
-        aws_secret_access_key: str = config.S3_SECRET,
-        endpoint_url: str = config.S3_ENDPOINT_URL,
-):
-    return boto3.client(
-        "s3",
-        aws_access_key_id=aws_access_key_id,
-        aws_secret_access_key=aws_secret_access_key,
-        endpoint_url=endpoint_url,
-    )
-
-
-def _kwargs_without_none(**kwargs) -> dict:
-    # boto3 doesn't like None kwargs...filter them
-    return {k: v for k, v in kwargs.items() if v is not None}
-
-
-def _get_truncated_contents(
-        bucket: str,
-        next_key: str,
-        max_keys: int,
-        prefix_filter: Optional[str] = None,
-        s3_client: Optional[ServiceResource] = None,
-) -> list[str]:
-    s3_client = s3_client or _get_client()
-    output = []
-    truncated_flag = True
-    while truncated_flag:
-        new_contents = s3_client.list_objects(
-            Bucket=bucket,
-            Marker=next_key,
-            **_kwargs_without_none(MaxKeys=max_keys, Prefix=prefix_filter)
-        )
-        extra_data = [x["Key"] for x in new_contents.get("Contents")]
-        output.extend(extra_data)
-        next_key = new_contents.get("NextMarker")
-        truncated_flag = new_contents.get("IsTruncated")
-
-    return output

@@ -11,8 +11,7 @@
 
 ### Minio
 - Minio can serve directories/files (`</path/of/where/you/store/media>`) as an S3 object store
-- That said, `minio.RELEASE.2022-05-26T05-48-41Z` is the last version that can directly serve 
-- directories/files as an S3 object store (and vice versa)
+- That said, `minio.RELEASE.2022-05-26T05-48-41Z` is the last version that can directly serve directories/files as an S3 object store (and vice versa)
 - We need this for our web app to interact with this content
 - Vaguely follow this ([guide](https://min.io/download#_)), but install the archived version!
   - on Linux (amd64):
@@ -21,8 +20,8 @@
 
       chmod +x minio
 
-      MINIO_ROOT_USER=minioadmin \
-      MINIO_ROOT_PASSWORD=miniopassword \
+      MINIO_ROOT_USER=custom_minioadmin \
+      MINIO_ROOT_PASSWORD=custom_miniopassword \
       ./minio server </path/of/where/you/store/media> \
         --console-address ":9001"
       ```
@@ -34,5 +33,5 @@
     - `sudo dnf install ffmpeg ffmpeg-devel libheif libffi libheif-devel libde265-devel`
 - Set up python env with poetry
 - Install dependencies (cd into directory and do `poetry install`)
-- Run app with command `poetry run main.py`
+- Run app with command `poetry run python main.py`
 - Open Web UI at `http://localhost:8000/`

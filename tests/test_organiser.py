@@ -2,7 +2,7 @@ import os
 from typing import Any
 from botocore.response import StreamingBody
 
-from libression import organiser, s3
+from libression import organiser, s3_old
 from libression.entities import PageParamsRequest
 
 

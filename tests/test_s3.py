@@ -1,6 +1,6 @@
 import pytest
 from typing import Any
-from libression import s3
+from libression import s3_old
 
 
 def test_put_get_body(

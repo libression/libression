@@ -2,7 +2,7 @@ import os
 from typing import Any
 import pytest
 
-from libression import s3
+from libression import s3_old
 
 TEST_DATA_BUCKET = "test-data-bucket"
 TEST_CACHE_BUCKET = "test-cache-bucket"
@@ -23,7 +23,7 @@ def black_png() -> bytes:
     filepath = os.path.join(
         os.path.dirname(__file__),
         "fixtures",
-        "test_photos",
+        "samplephotos",
         "black.png",
     )
     with open(filepath, "rb") as f:
