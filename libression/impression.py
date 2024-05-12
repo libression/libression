@@ -1,15 +1,17 @@
 from enum import Enum
 from typing import Optional
 import io
-import pyheif
 import logging
 import botocore
 
 from PIL import Image, ImageOps
+from pillow_heif import register_heif_opener
 
 from libression import config, s3
 
 logger = logging.getLogger(__name__)
+
+register_heif_opener()
 
 
 class FileFormat(Enum):
@@ -24,14 +26,14 @@ class FileFormat(Enum):
 def to_cache_preloaded(
     cache_key: str,
     raw_content: bytes,
-    file_format: str,
+    file_format: FileFormat,
     cache_bucket: str,
 ) -> Optional[bytes]:
 
     try:
         cached_content = _generate_cache(
             raw_content,
-            file_format=FileFormat(file_format),
+            file_format=file_format,
         )
 
         s3.put(
@@ -53,15 +55,9 @@ def _generate_cache(
     width: int = config.CACHE_WIDTH,
 ) -> Optional[bytes]:
 
-    image = None
-
-    if file_format in [FileFormat.heic]:
-        i = pyheif.read_heif(original_contents.read())
-        image = Image.frombytes(mode=i.mode, size=i.size, data=i.data)
-    else:
-        image = Image.open(original_contents)
-        if file_format in [FileFormat.jpeg, FileFormat.jpg]:
-            image = ImageOps.exif_transpose(image)
+    image = Image.open(original_contents)
+    if file_format in [FileFormat.jpeg, FileFormat.jpg]:
+        image = ImageOps.exif_transpose(image)
 
     if image is None:
         return None

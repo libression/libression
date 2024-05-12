@@ -1,14 +1,14 @@
 from typing import Collection, Optional
 import logging
-import botocore
-
+from botocore.response import StreamingBody
 from libression import config, entities, impression, s3
+from libression.impression import FileFormat
 
 logger = logging.getLogger(__name__)
 
 
 def init_buckets(
-    buckets: Collection = (config.CACHE_BUCKET, config.DATA_BUCKET)
+    buckets: Collection = (config.LIBRESSION_CACHE_BUCKET, config.LIBRESSION_DATA_BUCKET)
 ) -> None:
 
     for bucket in buckets:
@@ -17,15 +17,15 @@ def init_buckets(
 
 def get_content(
     s3_key: str,
-    bucket: str = config.DATA_BUCKET,
-) -> botocore.response.StreamingBody:
+    bucket: str = config.LIBRESSION_DATA_BUCKET,
+) -> StreamingBody:
     return s3.get_body(key=s3_key, bucket_name=bucket)
 
 
 def load_cache(
     key: str,
-    bucket: str = config.CACHE_BUCKET,
-) -> botocore.response.StreamingBody:
+    bucket: str = config.LIBRESSION_CACHE_BUCKET,
+) -> StreamingBody:
     return s3.get_body(
         key=_cache_key(key),
         bucket_name=bucket,
@@ -35,8 +35,8 @@ def load_cache(
 def update_caches(
     list_of_keys: Collection[str],
     overwrite: bool = False,
-    data_bucket=config.DATA_BUCKET,
-    cache_bucket=config.CACHE_BUCKET,
+    data_bucket=config.LIBRESSION_DATA_BUCKET,
+    cache_bucket=config.LIBRESSION_CACHE_BUCKET,
 ) -> dict[str, Optional[bytes]]:
 
     if overwrite:
@@ -67,8 +67,8 @@ def update_caches(
 def move(
     file_keys: Collection[str],
     target_dir: str,
-    data_bucket: str = config.DATA_BUCKET,
-    cache_bucket: str = config.CACHE_BUCKET,
+    data_bucket: str = config.LIBRESSION_DATA_BUCKET,
+    cache_bucket: str = config.LIBRESSION_CACHE_BUCKET,
 ) -> None:
     """
     Assume:
@@ -88,8 +88,8 @@ def move(
 def copy(
     file_keys: Collection[str],
     target_dir: str,
-    data_bucket: str = config.DATA_BUCKET,
-    cache_bucket: str = config.CACHE_BUCKET,
+    data_bucket: str = config.LIBRESSION_DATA_BUCKET,
+    cache_bucket: str = config.LIBRESSION_CACHE_BUCKET,
 ) -> None:
     """
     Assume:
@@ -121,8 +121,8 @@ def copy(
 
 def delete(
     file_keys: Collection[str],
-    data_bucket: str = config.DATA_BUCKET,
-    cache_bucket: str = config.CACHE_BUCKET,
+    data_bucket: str = config.LIBRESSION_DATA_BUCKET,
+    cache_bucket: str = config.LIBRESSION_CACHE_BUCKET,
 ) -> None:
     """
     Assume:
@@ -143,7 +143,7 @@ def delete(
 
 def fetch_page_params(
     request: entities.PageParamsRequest,
-    data_bucket: str = config.DATA_BUCKET,
+    data_bucket: str = config.LIBRESSION_DATA_BUCKET,
 ) -> entities.PageParamsResponse:
     """
     e.g. Given these exist in the "data" bucket:
@@ -230,7 +230,10 @@ def _to_cache(
     logging.info(f"getting content for {key}")
     original_content = s3.get_body(key=key, bucket_name=data_bucket)
 
-    file_format = key.split(".")[-1]
+    try:
+        file_format = FileFormat(key.split(".")[-1].lower())
+    except ValueError:
+        return None
 
     return impression.to_cache_preloaded(
         _cache_key(key),

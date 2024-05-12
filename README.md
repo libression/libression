@@ -21,8 +21,8 @@
 
       chmod +x minio
 
-      MINIO_ROOT_USER=minioadmin \
-      MINIO_ROOT_PASSWORD=miniopassword \
+      MINIO_ROOT_USER=custom_minioadmin \
+      MINIO_ROOT_PASSWORD=custom_miniopassword \
       ./minio server </path/of/where/you/store/media> \
         --console-address ":9001"
       ```
@@ -34,5 +34,6 @@
     - `sudo dnf install ffmpeg ffmpeg-devel libheif libffi libheif-devel libde265-devel`
 - Set up python env with poetry
 - Install dependencies (cd into directory and do `poetry install`)
-- Run app with command `poetry run main.py`
+- Run app with command (set env vars accordingly), e.g.
+    - `S3_ACCESS_KEY_ID=custom_minioadmin S3_SECRET=custom_miniopassword S3_ENDPOINT_URL=http://localhost:9000 LIBRESSION_CACHE_BUCKET=libressioncache LIBRESSION_DATA_BUCKET=mainbucket poetry run python main.py`
 - Open Web UI at `http://localhost:8000/`
