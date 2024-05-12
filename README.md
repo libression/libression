@@ -34,5 +34,5 @@
     - `sudo dnf install ffmpeg ffmpeg-devel libheif libffi libheif-devel libde265-devel`
 - Set up python env with poetry
 - Install dependencies (cd into directory and do `poetry install`)
-- Run app with command `poetry run main.py`
+- Run app with command `poetry run python main.py`
 - Open Web UI at `http://localhost:8000/`
