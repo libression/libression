@@ -3,10 +3,11 @@ from typing import Optional
 import io
 import pyheif
 import logging
-import botocore
-
+import botocore.response
+from pillow_heif import register_heif_opener
 from PIL import Image, ImageOps
 
+register_heif_opener()
 from libression import config, s3
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ def to_cache_preloaded(
     try:
         cached_content = _generate_cache(
             raw_content,
-            file_format=FileFormat(file_format),
+            file_format=FileFormat(file_format.lower()),
         )
 
         s3.put(
@@ -53,20 +54,11 @@ def _generate_cache(
     width: int = config.CACHE_WIDTH,
 ) -> Optional[bytes]:
 
-    image = None
+    image = Image.open(original_contents)
+    if file_format in [FileFormat.jpeg, FileFormat.jpg]:
+        image = ImageOps.exif_transpose(image)
 
-    if file_format in [FileFormat.heic]:
-        i = pyheif.read_heif(original_contents.read())
-        image = Image.frombytes(mode=i.mode, size=i.size, data=i.data)
-    else:
-        image = Image.open(original_contents)
-        if file_format in [FileFormat.jpeg, FileFormat.jpg]:
-            image = ImageOps.exif_transpose(image)
-
-    if image is None:
-        return None
-    else:
-        return _shrink_image(image.convert('RGB'), fixed_width=width)
+    return _shrink_image(image.convert('RGB'), fixed_width=width)
 
 
 def _shrink_image(original_image: Image, fixed_width: int):
