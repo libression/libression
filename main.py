@@ -1,5 +1,5 @@
 import logging
-
+import http
 from fastapi import FastAPI, Request, Response, responses
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -36,9 +36,13 @@ def refresh_page_params(
 
 @app.get("/thumbnail/{s3_key:path}")
 def thumbnail(s3_key: str) -> responses.StreamingResponse:
-    contents = organiser.load_cache(s3_key)
-    logging.info(f"thumbnail for {s3_key} fetched")
-    return responses.StreamingResponse(contents)
+    try:
+        contents = organiser.load_cache(s3_key)
+        status_code = http.HTTPStatus.OK
+    except:
+        contents = iter([])
+        status_code = http.HTTPStatus.NO_CONTENT
+    return responses.StreamingResponse(contents, status_code=status_code)
 
 
 @app.get("/media/{s3_key:path}")

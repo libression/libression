@@ -70,7 +70,6 @@ def get_body(
     output = s3_client.get_object(Bucket=bucket_name, Key=key)
     if "Body" in output:
         return output["Body"]
-    raise FileNotFoundError
 
 
 def delete(

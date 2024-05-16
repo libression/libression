@@ -1,7 +1,6 @@
 from enum import Enum
 from typing import Optional
 import io
-import pyheif
 import logging
 import botocore.response
 from pillow_heif import register_heif_opener
@@ -13,49 +12,59 @@ from libression import config, s3
 logger = logging.getLogger(__name__)
 
 
-class FileFormat(Enum):
-    jpg = "jpg"
-    jpeg = "jpeg"
-    png = "png"
-    tif = "tif"
-    tiff = "tiff"
-    heic = "heic"
+class FileExtension(Enum):
+    JPG = "jpg"
+    JPEG = "jpeg"
+    PNG = "png"
+    TIF = "tif"
+    TIFF = "tiff"
+    HEIC = "heic"
+    # # DESC ORDER OF COUNT IN LIBRARY!
+    # MOV = "mov"
+    # MP4 = "mp4"
+    # M4V = "m4v"
+    # AAE = "aae"
+    # BMP = "bmp"
+    # AVI = "avi"
+    # THREEGP = "3gp"
+    # MPG = "mpg"
+    # MTS = "mts"
+    # THM = "thm"
+    # DNG = "dng"
+    # WEBP = "webp"
+    # GIF = "gif"
+    # WMV = "wmv"
 
 
 def to_cache_preloaded(
     cache_key: str,
-    raw_content: bytes,
+    raw_content: botocore.response.StreamingBody,
     file_format: str,
     cache_bucket: str,
 ) -> Optional[bytes]:
 
-    try:
-        cached_content = _generate_cache(
-            raw_content,
-            file_format=FileFormat(file_format.lower()),
-        )
+    cached_content = _generate_cache(
+        raw_content,
+        file_format=FileExtension(file_format),
+    )
 
-        s3.put(
-            key=cache_key,
-            body=cached_content,
-            bucket_name=cache_bucket,
-        )
-        logging.info(f"saved cache {cache_key}")
-        return cached_content
-
-    except Exception as e:
-        logger.info(f"Exception: {e}, can't read key {cache_key}...")
-        return None
+    s3.put(
+        key=cache_key,
+        body=cached_content,
+        bucket_name=cache_bucket,
+    )
+    logging.info(f"saved cache {cache_key}")
+    return cached_content
 
 
 def _generate_cache(
     original_contents: botocore.response.StreamingBody,
-    file_format: FileFormat,
+    file_format: FileExtension,
     width: int = config.CACHE_WIDTH,
 ) -> Optional[bytes]:
 
     image = Image.open(original_contents)
-    if file_format in [FileFormat.jpeg, FileFormat.jpg]:
+    if file_format in [FileExtension.JPEG, FileExtension.JPG]:
         image = ImageOps.exif_transpose(image)
 
     return _shrink_image(image.convert('RGB'), fixed_width=width)

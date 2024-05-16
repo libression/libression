@@ -1,8 +1,10 @@
 from typing import Collection, Optional
 import logging
-import botocore
+import botocore.response
+import botocore.errorfactory
 
 from libression import config, entities, impression, s3
+from libression.impression import FileExtension
 
 logger = logging.getLogger(__name__)
 
@@ -227,10 +229,12 @@ def _to_cache(
     data_bucket: str,
     cache_bucket: str,
 ) -> Optional[bytes]:
-    logging.info(f"getting content for {key}")
     original_content = s3.get_body(key=key, bucket_name=data_bucket)
 
-    file_format = key.split(".")[-1]
+    file_format = key.lower().split(".")[-1]
+
+    if file_format not in FileExtension:
+        return None
 
     return impression.to_cache_preloaded(
         _cache_key(key),
