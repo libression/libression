@@ -37,27 +37,56 @@
     ```
     - Configure nginx (/etc/nginx/conf.d/webdav.conf, needs sudo)
     ```
-    server {
-        listen 80;
-        server_name your_domain.com;
+    events {
+        worker_connections 1024;  # Adjust as needed
+    }
 
-        auth_basic "Restricted Access";
-        auth_basic_user_file /etc/nginx/.htpasswd;
+    http {
+        include       mime.types;
+        default_type application/octet-stream;
 
-        location /webdav/ {
-            root /path/to/your/folder;
-             
-            dav_methods PUT DELETE MKCOL COPY MOVE;
-            dav_ext_methods PROPFIND OPTIONS;
-             
-            dav_access user:rw group:rw all:r;
-             
-            client_max_body_size 0;
-            create_full_put_path on;
-             
-            autoindex on;
+        sendfile        on;
+        keepalive_timeout  65;
+
+        server {
+            listen 80;
+            server_name localhost;  # Use 'localhost' for local access
+
+            auth_basic "Restricted Access";
+            auth_basic_user_file /usr/local/etc/nginx/.htpasswd;
+
+            # First libression_library directory
+            location /dummy_photos/ {
+                root /Users/ernest/Downloads;
+
+                dav_methods PUT DELETE MKCOL COPY MOVE;
+                # dav_ext_methods PROPFIND OPTIONS;
+
+                dav_access user:rw group:rw all:r;
+
+                client_max_body_size 0;
+                create_full_put_path on;
+
+                autoindex on;
+            }
+
+            # Second libression_cache directory
+            location /dummy_photos_cache/ {
+                root /Users/ernest/Downloads;
+
+                dav_methods PUT DELETE MKCOL COPY MOVE;
+                # dav_ext_methods PROPFIND OPTIONS;
+
+                dav_access user:rw group:rw all:r;
+
+                client_max_body_size 0;
+                create_full_put_path on;
+
+                autoindex on;
+            }
         }
     }
+
     ```
   - **Create a password file for basic authentication**: bash
     ```
@@ -80,8 +109,16 @@
     sudo firewall-cmd --permanent --add-service=http
     sudo firewall-cmd --reload
     ```
+- macos:
+  - brew install nginx --with-dav
+  - brew install httpd, config /opt/homebrew/etc/nginx/nginx.conf (above file)
+  - set htpasswd: `sudo htpasswd -c /usr/local/etc/nginx/.htpasswd your_username`  (chilledgeek/chilledgeek)
+  - restart nginx: `brew services restart nginx`
+  - check status `nginx -t`
+  
 
-
+# Lib Magic
+- `sudo apt-get install libmagic1`
 
 ### Web app
 - Install a bunch of encodings, e.g.
