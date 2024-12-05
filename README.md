@@ -29,6 +29,60 @@
   - on Mac / Windows
     - Not tested yet. Should be similar to above!
 
+### Nginx + Webdav
+- Fedora
+  - Install nginx
+    ```
+    sudo dnf install nginx httpd-tools
+    ```
+    - Configure nginx (/etc/nginx/conf.d/webdav.conf, needs sudo)
+    ```
+    server {
+        listen 80;
+        server_name your_domain.com;
+
+        auth_basic "Restricted Access";
+        auth_basic_user_file /etc/nginx/.htpasswd;
+
+        location /webdav/ {
+            root /path/to/your/folder;
+             
+            dav_methods PUT DELETE MKCOL COPY MOVE;
+            dav_ext_methods PROPFIND OPTIONS;
+             
+            dav_access user:rw group:rw all:r;
+             
+            client_max_body_size 0;
+            create_full_put_path on;
+             
+            autoindex on;
+        }
+    }
+    ```
+  - **Create a password file for basic authentication**: bash
+    ```
+    sudo dnf install httpd-tools
+    sudo htpasswd -c /etc/nginx/.htpasswd your_username
+    ```
+  - **Set permissions and SELinux context**: bash
+    ```
+    sudo chown -R nginx:nginx /path/to/your/folder
+    sudo chmod -R 755 /path/to/your/folder
+    sudo semanage fcontext -a -t httpd_sys_content_t "/path/to/your/folder(/.)?"
+    sudo restorecon -R -v /path/to/your/folder
+    sudo setsebool -P httpd_can_network_connect 1
+    sudo setsebool -P httpd_can_write_content 1
+    ```
+  - **Start and enable Nginx**:
+    ```
+    sudo systemctl enable nginx
+    sudo systemctl start nginx
+    sudo firewall-cmd --permanent --add-service=http
+    sudo firewall-cmd --reload
+    ```
+
+
+
 ### Web app
 - Install a bunch of encodings, e.g.
     - `sudo dnf install ffmpeg ffmpeg-devel libheif libffi libheif-devel libde265-devel`
