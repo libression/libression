@@ -3,7 +3,7 @@ import http
 from fastapi import FastAPI, Request, Response, responses
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from libression import entities, organiser
+from libression import organiser, page_entities
 import uvicorn
 
 
@@ -26,8 +26,8 @@ def single_web_entrypoint(request: Request) -> responses.Response:
 
 @app.post("/refresh_page_params")
 def refresh_page_params(
-    request: entities.PageParamsRequest
-) -> entities.PageParamsResponse:
+    request: page_entities.PageParamsRequest
+) -> page_entities.PageParamsResponse:
 
     page_metadata = organiser.fetch_page_params(request)
     organiser.update_caches(page_metadata.file_keys)
@@ -61,16 +61,16 @@ def download(s3_key: str) -> Response:
 
 @app.post("/file_action")
 def file_action(
-    request: entities.FileActionRequest
-) -> entities.FileActionResponse:
+    request: page_entities.FileActionRequest
+) -> page_entities.FileActionResponse:
 
-    if request.action == entities.FileAction.copy:
+    if request.action == page_entities.FileAction.copy:
         organiser.copy(request.file_keys, request.target_dir)
-    elif request.action == entities.FileAction.move:
+    elif request.action == page_entities.FileAction.move:
         organiser.move(request.file_keys, request.target_dir)
-    elif request.action == entities.FileAction.delete:
+    elif request.action == page_entities.FileAction.delete:
         organiser.delete(request.file_keys)
-    return entities.FileActionResponse(success=True)
+    return page_entities.FileActionResponse(success=True)
 
 
 if __name__ == "__main__":
