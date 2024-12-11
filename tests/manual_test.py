@@ -1,10 +1,11 @@
 import io
 import uuid
 
-from libression.entities.io import FileStreams
+from libression.entities.io import FileStreams, FileKeyMapping
 from libression.io_handler.webdav import WebDAVIOHandler
 
-BASE_URL = "https://localhost/photos_to_print_copy/"
+# BASE_URL = "https://localhost/photos_to_print_copy/"
+BASE_URL = "https://localhost/dummy_photos/"
 USERNAME = "chilledgeek"
 PASSWORD = "chilledgeek"
 SECRET_KEY = "chilledgeek_secret_key"
@@ -32,13 +33,13 @@ def manual_test_webdav():
     FOLDER_NAME = str(uuid.uuid4())
 
     # Test upload
-    file_streams = FileStreams(
+    test_file_streams = FileStreams(
         file_streams={
             FILE_KEY: io.BytesIO(TEST_DATA),
             f"{FOLDER_NAME}/{FILE_KEY}": io.BytesIO(TEST_DATA),
         }
     )
-    handler.upload(file_streams)
+    handler.upload(test_file_streams)
 
     # Test list directory
     objects = handler.list_objects()
@@ -64,33 +65,52 @@ def manual_test_webdav():
     assert found_nested_files[0].absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"
     assert found_nested_files[0].size > 0
 
-    ##############################################
-    # TODO CONTINUE TESTing...rest is a bit broken...
-    ##############################################
+    # Test download
+    download_streams = handler.get([FILE_KEY, f"{FOLDER_NAME}/{FILE_KEY}"])
+    assert download_streams.file_streams[FILE_KEY].read() == TEST_DATA
+    assert download_streams.file_streams[f"{FOLDER_NAME}/{FILE_KEY}"].read() == TEST_DATA
 
-    print("\n3. Testing bytestream (download)...")
-    stream = handler.bytestream(test_key)
-    content = stream.read()
-    print(f"✓ Downloaded content: {content}")
-    assert content == test_data, "Content mismatch!"
+    # Test delete
+    handler.delete([f"{FOLDER_NAME}/{FILE_KEY}"])
+    objects = handler.list_objects()
+    assert len([x for x in objects if x.absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"]) == 0
 
-    print("\n4. Testing copy...")
-    copy_key = "test-file-copy.txt"
-    handler.copy(test_key, copy_key)
-    print("✓ Copy successful")
+    # Test move
+    handler.move(
+        [
+            FileKeyMapping(
+                source_key=FILE_KEY,
+                destination_key=f"{FOLDER_NAME}/{FILE_KEY}",
+            )
+        ]
+    )
+    objects = handler.list_objects(FOLDER_NAME)
+    assert len([x for x in objects if x.absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"]) == 1
+    assert len([x for x in objects if x.absolute_path == f"FILE_KEY"]) == 0
 
-    print("\n5. Testing move...")
-    move_key = "test-file-moved.txt"
-    handler.move(copy_key, move_key)
-    print("✓ Move successful")
+    # Test copy
+    handler.copy(
+        [
+            FileKeyMapping(
+                source_key=f"{FOLDER_NAME}/{FILE_KEY}",
+                destination_key=FILE_KEY,
+            )
+        ]
+    )
+    objects = handler.list_objects()
+    assert len([x for x in objects if x.absolute_path == FILE_KEY]) == 1
 
-    print("\n6. Testing delete...")
-    handler.delete(test_key)
-    handler.delete(move_key)
-    print("✓ Delete successful")
+    objects = handler.list_objects(FOLDER_NAME)
+    assert len([x for x in objects if x.absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"]) == 1
 
-    print("\nAll tests passed! 🎉")
 
+    # Teardown
+    handler.delete([f"{FOLDER_NAME}/{FILE_KEY}", FILE_KEY])
+    objects = handler.list_objects()
+    assert len([x for x in objects if x.absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"]) == 0
+    assert len([x for x in objects if x.absolute_path == f"FILE_KEY"]) == 0
+
+    print("Manual test passed")
 
 if __name__ == "__main__":
     manual_test_webdav()

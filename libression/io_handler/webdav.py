@@ -6,7 +6,6 @@ import typing
 import hashlib
 import datetime
 import requests
-import xml.etree.ElementTree as ET
 import libression.entities.io
 from bs4 import BeautifulSoup
 
@@ -21,7 +20,11 @@ class WebDAVServerType(enum.Enum):
     NGINX = enum.auto()
 
 
-def _validate_paths(object_keys: typing.Sequence[str]) -> None:
+def _validate_paths(object_keys: typing.Iterable[str]) -> None:
+    if not isinstance(object_keys, typing.Iterable):
+        raise ValueError("Object keys must be a sequence")
+    if isinstance(object_keys, str):
+        raise ValueError("Object keys must not be a string (use a list or tuple?)")
     for key in object_keys:
         if key.startswith('/'):
             raise ValueError("Object key must not start with a slash")
@@ -44,7 +47,7 @@ def _parse_nginx_ls_size(size_text: str) -> int:
     return int(size * multipliers.get(unit, 1))
 
 
-class WebDAVIOHandler:
+class WebDAVIOHandler(libression.entities.io.IOHandler):
     def __init__(
         self,
         base_url: str,
@@ -61,7 +64,7 @@ class WebDAVIOHandler:
         self.verify_ssl = verify_ssl
         self.secret_key = secret_key
 
-    def get(self, file_keys: typing.Sequence[str]) -> libression.entities.io.FileStreams:
+    def get(self, file_keys: typing.Iterable[str]) -> libression.entities.io.FileStreams:
         _validate_paths(file_keys)
 
         streams = dict()
@@ -94,7 +97,7 @@ class WebDAVIOHandler:
 
         return None
 
-    def delete(self, file_keys: typing.Sequence[str]) -> None:
+    def delete(self, file_keys: typing.Iterable[str]) -> None:
         _validate_paths(file_keys)
         for file_key in file_keys:
             response = requests.delete(
@@ -200,7 +203,7 @@ class WebDAVIOHandler:
 
     def get_urls(
         self,
-        file_keys: typing.Sequence[str],
+        file_keys: typing.Iterable[str],
         expires_in_seconds: int = 60 * 60 * 7
     ) -> libression.entities.io.GetUrlsResponse:
         """

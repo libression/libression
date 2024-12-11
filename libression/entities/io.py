@@ -4,6 +4,12 @@ import typing
 
 
 @dataclasses.dataclass
+class FileKeyMapping:
+    source_key: str
+    destination_key: str
+
+
+@dataclasses.dataclass
 class FileStreams:
     file_streams: dict[str, typing.IO[bytes]]
 
@@ -33,7 +39,7 @@ class IOHandler(typing.Protocol):
     """
 
     # Needs to be defined by IOHandler implementation
-    def get(self, file_keys: typing.Sequence[str]) -> FileStreams:
+    def get(self, file_keys: typing.Iterable[str]) -> FileStreams:
         """Get multiple objects as streams."""
         ...
 
@@ -45,7 +51,7 @@ class IOHandler(typing.Protocol):
         """
         ...
 
-    def delete(self, file_keys: typing.Sequence[str]) -> None:
+    def delete(self, file_keys: typing.Iterable[str]) -> None:
         """Delete multiple objects."""
         ...
 
@@ -53,30 +59,35 @@ class IOHandler(typing.Protocol):
         """List all objects in the "directory"."""
         ...
 
-    def get_urls(self, file_keys: typing.Sequence[str]) -> GetUrlsResponse:
+    def get_urls(self, file_keys: typing.Iterable[str]) -> GetUrlsResponse:
         ...
 
     # Optional overrides if needed
     def copy(
         self,
-        source_file_keys: typing.Sequence[str],
-        destination_file_keys: typing.Sequence[str],
+        file_key_mappings: typing.Iterable[FileKeyMapping],
     ) -> None:
         """
         default implementation does pass data between client/server
         best to override if possible to just have the server do the entire copy
         """
-        streams = self.get(source_file_keys)
-        self.upload(destination_file_keys, streams)
+        for file_key_mapping in file_key_mappings:
+            streams = self.get([file_key_mapping.source_key])
+            self.upload(
+                FileStreams(
+                    file_streams={
+                        file_key_mapping.destination_key: streams.file_streams[file_key_mapping.source_key]
+                    }
+                )
+            )
 
     def move(
         self,
-        source_file_keys: typing.Sequence[str],
-        destination_file_keys: typing.Sequence[str],
+        file_key_mappings: typing.Iterable[FileKeyMapping],
     ) -> None:
         """
         default implementation does pass data between client/server
         best to override if possible to just have the server do the entire move
         """
-        self.copy(source_file_keys, destination_file_keys)
-        self.delete(source_file_keys)
+        self.copy(file_key_mappings)
+        self.delete([file_key_mapping.source_key for file_key_mapping in file_key_mappings])

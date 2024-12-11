@@ -211,8 +211,17 @@
 
 
 - macos:
+  - Set up https certs
+    ```
+    mkdir -p ~/certs
+    cd ~/certs
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout nginx-selfsigned.key -out nginx-selfsigned.crt
+    ```
+
+
   - brew install nginx --with-dav
-  - brew install httpd, config /opt/homebrew/etc/nginx/nginx.conf:
+  - brew install httpd
+  - config /opt/homebrew/etc/nginx/nginx.conf:
     ```
     events {
         worker_connections 1024;  # Adjust as needed
@@ -229,15 +238,25 @@
             listen 80;
             server_name localhost;  # Use 'localhost' for local access
 
+            # Redirect HTTP to HTTPS
+            return 301 https://$host$request_uri;
+        }
+
+        server {
+            listen 443 ssl;
+            server_name localhost;  # Use 'localhost' for local access
+
+            ssl_certificate /Users/ernest/certs/nginx-selfsigned.crt;  # Path to your certificate
+            ssl_certificate_key /Users/ernest/certs/nginx-selfsigned.key;  # Path to your private key
+
             auth_basic "Restricted Access";
             auth_basic_user_file /usr/local/etc/nginx/.htpasswd;
 
             # First libression_library directory
             location /dummy_photos/ {
-                root /Users/ernest/Downloads;
+                alias /Users/ernest/Downloads/dummy_photos/;
 
                 dav_methods PUT DELETE MKCOL COPY MOVE;
-                # dav_ext_methods PROPFIND OPTIONS;
 
                 dav_access user:rw group:rw all:r;
 
@@ -249,10 +268,9 @@
 
             # Second libression_cache directory
             location /dummy_photos_cache/ {
-                root /Users/ernest/Downloads;
+                alias /Users/ernest/Downloads/dummy_photos_cache/;
 
                 dav_methods PUT DELETE MKCOL COPY MOVE;
-                # dav_ext_methods PROPFIND OPTIONS;
 
                 dav_access user:rw group:rw all:r;
 
