@@ -31,20 +31,11 @@ def _validate_paths(object_keys: typing.Iterable[str]) -> None:
     return None
 
 def _parse_nginx_ls_size(size_text: str) -> int:
-    """Convert Nginx size format to bytes"""
-    if size_text == '-':
+    """Convert Nginx size string to bytes (plain numbers only)"""
+    if not size_text or size_text == '-':
         return 0
     
-    size = float(size_text[:-1])
-    unit = size_text[-1].upper()
-    
-    multipliers = {
-        'K': 1024,
-        'M': 1024 * 1024,
-        'G': 1024 * 1024 * 1024
-    }
-    
-    return int(size * multipliers.get(unit, 1))
+    return int(size_text)  # Size is always in bytes
 
 
 class WebDAVIOHandler(libression.entities.io.IOHandler):
@@ -107,10 +98,25 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             )
             response.raise_for_status()
 
-    def list_objects(self, dirpath: str = "") -> list[libression.entities.io.ListDirectoryObject]:
-        """List directory contents using GET request and parsing Nginx's autoindex"""
+    def list_objects(self, dirpath: str = "", subfolder_contents: bool = False) -> list[libression.entities.io.ListDirectoryObject]:
+        """List directory contents using GET request and parsing Nginx's autoindex
+        
+        Args:
+            dirpath: The directory path to list
+            subfolder_contents: If True, only show immediate contents (like ls)
+                              If False, show all nested contents recursively
+        """
         _validate_paths([dirpath])
         
+        if subfolder_contents:
+            # Recursive listing
+            return self._list_recursive(dirpath)
+        else:
+            # Single directory listing (like ls)
+            return self._list_single_directory(dirpath)
+
+    def _list_single_directory(self, dirpath: str) -> list[libression.entities.io.ListDirectoryObject]:
+        """List contents of a single directory (non-recursive)"""
         url = f"{self.base_url}{dirpath.lstrip('/')}"
         logger.debug(f"GET request to: {url}")
         
@@ -122,66 +128,72 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         )
         response.raise_for_status()
         
-        soup = BeautifulSoup(response.text, 'html.parser')
+        return self._parse_directory_listing(response.text, dirpath)
+
+    def _list_recursive(self, dirpath: str) -> list[libression.entities.io.ListDirectoryObject]:
+        """List directory contents recursively"""
+        results = []
+        to_visit = [dirpath]
+        
+        while to_visit:
+            current_dir = to_visit.pop(0)
+            dir_contents = self._list_single_directory(current_dir)
+            results.extend(dir_contents)
+            
+            # Add subdirectories to visit
+            for item in dir_contents:
+                if item.is_dir:
+                    to_visit.append(item.absolute_path)
+        
+        return results
+
+    def _parse_directory_listing(self, html: str, dirpath: str) -> list[libression.entities.io.ListDirectoryObject]:
+        """Parse Nginx autoindex HTML output"""
+        soup = BeautifulSoup(html, 'html.parser')
         files = []
         
-        # Find the <pre> tag that contains the file listing
         pre = soup.find('pre')
         if not pre:
             return files
         
-        # Each line in the <pre> tag represents a file/directory
-        for line in pre.text.split('\n'):
-            if not line.strip() or line.startswith('../'):
+        # Create a mapping of text -> href for all links
+        links = {a.text.strip(): a['href'] for a in pre.find_all('a')}
+        
+        # Split the text and filter out empty lines and parent directory
+        lines = [line for line in pre.text.split('\n') 
+                if line.strip() and not line.startswith('../')]
+        
+        date_pattern = '%d-%b-%Y %H:%M'
+        
+        for line in lines:
+            parts = line.strip().split()
+            raw_name = parts[0]
+            if raw_name not in links:
                 continue
             
-            parts = line.strip().split()
-            if len(parts) >= 3:
-                # Get raw name from the parts (includes trailing slash for dirs)
-                raw_name = parts[0]
-                
-                # Determine if it's a directory and get clean filename
-                is_dir = raw_name.endswith('/')
-                filename = raw_name[:-1] if is_dir else raw_name
-                
-                # Get the href from the <a> tag
-                link = pre.find('a', href=True, string=lambda x: x and x.strip() == raw_name)
-                if not link:
-                    continue
-                    
-                # Build absolute path
-                href = link['href']
-                if dirpath:
-                    # Combine current directory path with href
-                    absolute_path = f"{dirpath.strip('/')}/{href.strip('/')}"
-                else:
-                    absolute_path = href.strip('/')
-                
-                # Parse modification time (format: "09-Dec-2024 11:56")
-                modified = None
-                try:
-                    date_str = f"{parts[-3]} {parts[-2]}"
-                    modified = datetime.datetime.strptime(date_str, '%d-%b-%Y %H:%M')
-                except:
-                    pass
-                
-                # Parse size (last column, might be "-" for directories)
-                size = 0
-                if not is_dir and parts[-1] != '-':
-                    try:
-                        size = _parse_nginx_ls_size(parts[-1])
-                    except:
-                        pass
-                
-                files.append(
-                    libression.entities.io.ListDirectoryObject(
-                        filename=filename,  # Just the name of the file/folder
-                        absolute_path=absolute_path,  # Full path from root
-                        size=size,
-                        modified=modified,
-                        is_dir=is_dir
-                    )
+            is_dir = raw_name.endswith('/')
+            filename = raw_name[:-1] if is_dir else raw_name
+            
+            href = links[raw_name]
+            absolute_path = (f"{dirpath.strip('/')}/{href.strip('/')}" 
+                            if dirpath else href.strip('/'))
+            
+            modified = datetime.datetime.strptime(
+                f"{parts[-3]} {parts[-2]}", 
+                date_pattern
+            )
+            
+            size = 0 if is_dir else _parse_nginx_ls_size(parts[-1])
+            
+            files.append(
+                libression.entities.io.ListDirectoryObject(
+                    filename=filename,
+                    absolute_path=absolute_path,
+                    size=size,
+                    modified=modified,
+                    is_dir=is_dir
                 )
+            )
         
         return files
 

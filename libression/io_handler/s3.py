@@ -1,6 +1,7 @@
-import io
 import boto3
 import logging
+import datetime
+from typing import Dict, IO, List
 
 import libression.entities.io
 
@@ -21,79 +22,141 @@ class S3IOHandler(libression.entities.io.IOHandler):
             endpoint_url=endpoint_url,
         )
 
-    def upload(self, key: str, body: bytes, bucket_name: str) -> None:
-        self.client.put_object(
-            Body=body,
-            Bucket=bucket_name,
-            Key=key,
-            ACL='public-read-write',
+    def upload(self, file_streams: Dict[str, IO[bytes]]) -> None:
+        for filepath, stream in file_streams.items():
+            try:
+                stream.seek(0)
+                content = stream.read()
+                
+                self.client.put_object(
+                    Body=content,
+                    Bucket=self.bucket_name,
+                    Key=filepath.lstrip('/'),
+                )
+            except Exception as e:
+                logger.error(f"Upload failed for {filepath}: {e}")
+                raise
+
+    def list_objects(self, dirpath: str = "", subfolder_contents: bool = False) -> List[libression.entities.io.ListDirectoryObject]:
+        """
+        List objects in S3 bucket with directory-like hierarchy
+        
+        Args:
+            dirpath: The directory path to list
+            subfolder_contents: If True, only show immediate contents (like ls)
+                              If False, show all nested contents
+        """
+        prefix = dirpath.lstrip('/')
+        if prefix and not prefix.endswith('/'):
+            prefix += '/'
+        
+        response = self.client.list_objects_v2(
+            Bucket=self.bucket_name,
+            Prefix=prefix,
+            Delimiter='/' if subfolder_contents else None  # Use delimiter for ls-like behavior
         )
+        
+        files = []
+        common_prefixes = set()
+        
+        # Handle regular objects
+        for obj in response.get('Contents', []):
+            key = obj['Key']
+            
+            # Skip the directory itself
+            if key == prefix:
+                continue
+            
+            # For ls-like behavior, skip objects in subdirectories
+            if subfolder_contents:
+                relative_path = key[len(prefix):]
+                if '/' in relative_path:
+                    continue
+            
+            # Get filename from the full path
+            filename = key.split('/')[-1]
+            
+            # Only process files (not empty directory markers)
+            if filename:
+                files.append(
+                    libression.entities.io.ListDirectoryObject(
+                        filename=filename,
+                        absolute_path=key,
+                        size=obj.get('Size', 0),
+                        modified=obj['LastModified'],
+                        is_dir=False
+                    )
+                )
+        
+        # Handle directories
+        if subfolder_contents:
+            # When using delimiter, S3 returns CommonPrefixes for directories
+            for prefix_obj in response.get('CommonPrefixes', []):
+                prefix_path = prefix_obj.get('Prefix', '')
+                if prefix_path:
+                    dirname = prefix_path.rstrip('/').split('/')[-1]
+                    files.append(
+                        libression.entities.io.ListDirectoryObject(
+                            filename=dirname,
+                            absolute_path=prefix_path.rstrip('/'),
+                            size=0,
+                            modified=datetime.datetime.now(),
+                            is_dir=True
+                        )
+                    )
+        else:
+            # For recursive listing, find implicit directories
+            seen_dirs = set()
+            for obj in response.get('Contents', []):
+                parts = obj['Key'].split('/')
+                for i in range(len(parts) - 1):
+                    prefix_path = '/'.join(parts[:i+1])
+                    if prefix_path and prefix_path not in seen_dirs:
+                        seen_dirs.add(prefix_path)
+                        files.append(
+                            libression.entities.io.ListDirectoryObject(
+                                filename=parts[i],
+                                absolute_path=prefix_path,
+                                size=0,
+                                modified=datetime.datetime.now(),
+                                is_dir=True
+                            )
+                        )
+        
+        return files
 
-    def list_objects(self, bucket_name: str) -> list[str]:
-        response = self.client.list_objects(Bucket=bucket_name)
-        contents = response.get("Contents")
+    def move(self, source_path: str, destination_path: str) -> None:
+        """Move/rename an object in S3"""
+        # S3 doesn't have a direct move operation, so copy then delete
+        self.copy(source_path, destination_path)
+        self.delete(source_path)
 
-        if contents is None:
-            logger.info(f"list_objects in s3 bucket {bucket_name} returned no matched contents")
-            return []
-
-        output = [x["Key"] for x in contents]
-
-        if response.get("IsTruncated"):
-            output.extend(self._get_truncated_contents(
-                bucket_name,
-                response.get("NextMarker"),
-            ))
-
-        return output
-
-    def move(self, source_key: str, destination_key: str, bucket_name: str) -> None:
-        # S3 doesn't have a direct move operation, so we copy then delete
-        self.copy(source_key, destination_key, bucket_name)
-        self.delete(source_key, bucket_name)
-
-    def copy(self, source_key: str, destination_key: str, bucket_name: str) -> None:
+    def copy(self, source_path: str, destination_path: str) -> None:
+        """Copy an object in S3"""
         copy_source = {
-            'Bucket': bucket_name,
-            'Key': source_key
+            'Bucket': self.bucket_name,
+            'Key': source_path.lstrip('/')
         }
         self.client.copy_object(
             CopySource=copy_source,
-            Bucket=bucket_name,
-            Key=destination_key,
-            ACL='public-read-write'
+            Bucket=self.bucket_name,
+            Key=destination_path.lstrip('/')
         )
 
-    def delete(self, key: str, bucket_name: str) -> None:
-        self.client.delete_objects(
-            Bucket=bucket_name,
-            Delete={
-                "Objects": [{"Key": key}],
-                "Quiet": True,
-            },
+    def delete(self, filepath: str) -> None:
+        """Delete an object from S3"""
+        self.client.delete_object(
+            Bucket=self.bucket_name,
+            Key=filepath.lstrip('/')
         )
 
-    def bytestream(self, key: str, bucket_name: str) -> io.IOBase:
-        output = self.client.get_object(Bucket=bucket_name, Key=key)
-        if "Body" in output:
-            return output["Body"]
-        raise FileNotFoundError(f"Object {key} not found in bucket {bucket_name}")
-
-    def _get_truncated_contents(
-        self,
-        bucket: str,
-        next_key: str,
-    ) -> list[str]:
-        output = []
-        truncated_flag = True
-        while truncated_flag:
-            new_contents = self.client.list_objects(
-                Bucket=bucket,
-                Marker=next_key,
+    def bytestream(self, filepath: str) -> IO[bytes]:
+        """Get a file's contents as a byte stream"""
+        try:
+            response = self.client.get_object(
+                Bucket=self.bucket_name,
+                Key=filepath.lstrip('/')
             )
-            extra_data = [x["Key"] for x in new_contents.get("Contents", [])]
-            output.extend(extra_data)
-            next_key = new_contents.get("NextMarker")
-            truncated_flag = new_contents.get("IsTruncated")
-
-        return output
+            return response['Body']
+        except self.client.exceptions.NoSuchKey:
+            raise FileNotFoundError(f"Object {filepath} not found in bucket {self.bucket_name}")

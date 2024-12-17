@@ -4,8 +4,8 @@ import uuid
 from libression.entities.io import FileStreams, FileKeyMapping
 from libression.io_handler.webdav import WebDAVIOHandler
 
-# BASE_URL = "https://localhost/photos_to_print_copy/"
-BASE_URL = "https://localhost/dummy_photos/"
+# BASE_URL = "https://localhost/dummy_photos/"
+BASE_URL = "https://localhost/photos_to_print_copy/"
 USERNAME = "chilledgeek"
 PASSWORD = "chilledgeek"
 SECRET_KEY = "chilledgeek_secret_key"

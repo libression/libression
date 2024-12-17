@@ -24,7 +24,7 @@ class ListDirectoryObject:
     """File information from WebDAV"""
     filename: str
     absolute_path: str
-    size: int
+    size: int  # bytes
     modified: datetime.datetime
     is_dir: bool
 
@@ -55,7 +55,7 @@ class IOHandler(typing.Protocol):
         """Delete multiple objects."""
         ...
 
-    def list_objects(self, dirpath: str) -> list[ListDirectoryObject]:
+    def list_objects(self, dirpath: str, subfolder_contents: bool = False) -> list[ListDirectoryObject]:
         """List all objects in the "directory"."""
         ...
 
