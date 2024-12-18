@@ -1,11 +1,12 @@
 import io
 import uuid
-
+import requests
 from libression.entities.io import FileStreams, FileKeyMapping
 from libression.io_handler.webdav import WebDAVIOHandler
 
-# BASE_URL = "https://localhost/dummy_photos/"
-BASE_URL = "https://localhost/photos_to_print_copy/"
+BASE_URL = "https://localhost"
+URL_PATH = "dummy_photos"
+PRESIGNED_URL_PATH = "secure"
 USERNAME = "chilledgeek"
 PASSWORD = "chilledgeek"
 SECRET_KEY = "chilledgeek_secret_key"
@@ -25,6 +26,8 @@ def manual_test_webdav():
         password=PASSWORD,
         secret_key=SECRET_KEY,
         verify_ssl=False,  # Webdav should allow local only
+        url_path=URL_PATH,
+        presigned_url_path=PRESIGNED_URL_PATH,
     )
 
     # Test vars
@@ -69,6 +72,11 @@ def manual_test_webdav():
     download_streams = handler.get([FILE_KEY, f"{FOLDER_NAME}/{FILE_KEY}"])
     assert download_streams.file_streams[FILE_KEY].read() == TEST_DATA
     assert download_streams.file_streams[f"{FOLDER_NAME}/{FILE_KEY}"].read() == TEST_DATA
+
+    # Test get_url
+    presigned_urls = handler.get_urls([FILE_KEY, f"{FOLDER_NAME}/{FILE_KEY}"])
+    assert requests.get(presigned_urls.urls[FILE_KEY], verify=False).content == TEST_DATA
+    assert requests.get(presigned_urls.urls[f"{FOLDER_NAME}/{FILE_KEY}"], verify=False).content == TEST_DATA
 
     # Test delete
     handler.delete([f"{FOLDER_NAME}/{FILE_KEY}"])

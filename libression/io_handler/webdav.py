@@ -46,14 +46,58 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         password: str,
         secret_key: str,
         verify_ssl: bool = True,
+        url_path: str = "",
+        presigned_url_path: str = "",
     ):
-        if not base_url.endswith('/'):
-            raise ValueError("Base URL must end with a slash")
+        """
+        Given webdav setting:
+        server {
+            listen 443 ssl;
+            server_name localhost
+            location /dummy/photos/ {...}  # authenticated access (for file operations)
+            location /secure/read_only/ {...}  # read-only access (for presigned URLs)
+            ...
+        }
 
-        self.base_url = base_url
+        access to dummy/photos via https://localhost/dummy/photos/...
+        access to secure/read_only via https://localhost/secure/read_only/...
+
+        Args:
+            base_url: e.g. "https://localhost" (no slash at the end)
+            url_path: e.g. "dummy/photos" (no leading/ending slash)
+            presigned_url_path: e.g. "secure/read_only" (no leading/ending slash)
+            username: The username to use for authentication
+            password: The password to use for authentication
+            secret_key: The secret key to use for presigned URLs
+            verify_ssl: Whether to verify SSL certificates
+        """
+
+        self.base_url = base_url.rstrip('/')
+        self.url_path = url_path.rstrip('/').lstrip('/')
+        self.presigned_url_path = presigned_url_path.rstrip('/').lstrip('/')
         self.auth = (username, password)
         self.verify_ssl = verify_ssl
         self.secret_key = secret_key
+
+    @property
+    def presigned_base_url_with_path(self) -> str:
+        """
+        Returns the base URL with the presigned URL path (no trailing slash)
+        """
+        if self.presigned_url_path:
+            return f"{self.base_url}/{self.presigned_url_path}"
+        else:
+            return self.base_url
+
+    @property
+    def base_url_with_path(self) -> str:
+        """
+        Returns the base URL with the URL path (no trailing slash)
+        """
+        if self.url_path:
+            return f"{self.base_url}/{self.url_path}"
+        else:
+            return self.base_url
 
     def get(self, file_keys: typing.Iterable[str]) -> libression.entities.io.FileStreams:
         _validate_paths(file_keys)
@@ -61,7 +105,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         streams = dict()
         for file_key in file_keys:
             response = requests.get(
-                f"{self.base_url}/{file_key}",
+                f"{self.base_url_with_path}/{file_key}",
                 auth=self.auth,
                 verify=self.verify_ssl,
                 stream=True
@@ -74,12 +118,12 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
     def upload(self, file_streams: libression.entities.io.FileStreams) -> None:
         _validate_paths(file_streams.file_streams.keys())
 
-        for filepath, stream in file_streams.file_streams.items():
+        for file_key, stream in file_streams.file_streams.items():
             stream.seek(0)
             content = stream.read()
             
             response = requests.put(
-                f"{self.base_url}{filepath.lstrip('/')}",
+                f"{self.base_url_with_path}/{file_key}",
                 data=content,
                 auth=self.auth,
                 verify=self.verify_ssl
@@ -92,7 +136,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         _validate_paths(file_keys)
         for file_key in file_keys:
             response = requests.delete(
-                f"{self.base_url}{file_key}",
+                f"{self.base_url_with_path}/{file_key}",
                 auth=self.auth,
                 verify=self.verify_ssl
             )
@@ -117,7 +161,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
 
     def _list_single_directory(self, dirpath: str) -> list[libression.entities.io.ListDirectoryObject]:
         """List contents of a single directory (non-recursive)"""
-        url = f"{self.base_url}{dirpath.lstrip('/')}"
+        url = f"{self.base_url_with_path}/{dirpath.lstrip('/')}"
         logger.debug(f"GET request to: {url}")
         
         response = requests.get(
@@ -130,12 +174,17 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         
         return self._parse_directory_listing(response.text, dirpath)
 
-    def _list_recursive(self, dirpath: str) -> list[libression.entities.io.ListDirectoryObject]:
+    def _list_recursive(
+        self,
+        dirpath: str,
+        max_folder_crawl: int = 100
+    ) -> list[libression.entities.io.ListDirectoryObject]:
         """List directory contents recursively"""
         results = []
         to_visit = [dirpath]
+        folder_crawl_count = 0
         
-        while to_visit:
+        while to_visit and folder_crawl_count <= max_folder_crawl:
             current_dir = to_visit.pop(0)
             dir_contents = self._list_single_directory(current_dir)
             results.extend(dir_contents)
@@ -144,7 +193,12 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             for item in dir_contents:
                 if item.is_dir:
                     to_visit.append(item.absolute_path)
-        
+            
+            folder_crawl_count += 1
+
+        if len(to_visit) > 0:
+            logger.warning(f"Max folder crawl count {max_folder_crawl} reached. {len(to_visit)} folders not explored.")
+
         return results
 
     def _parse_directory_listing(self, html: str, dirpath: str) -> list[libression.entities.io.ListDirectoryObject]:
@@ -200,13 +254,19 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
     def _presigned_url(self, expires_in_seconds: int, file_key: str) -> str:
         expires = int(time.time()) + expires_in_seconds
 
+        cleaned_file_key = file_key.lstrip('/')
+
         # Create the md5 hash that Nginx expects
-        string_to_hash = f"{expires}/secure/{file_key} {self.secret_key}"
+        if self.presigned_url_path:
+            string_to_hash = f"{expires}/{self.presigned_url_path}/{cleaned_file_key} {self.secret_key}"
+        else:
+            string_to_hash = f"{expires}/{cleaned_file_key} {self.secret_key}"
+
         md5_hash = hashlib.md5(string_to_hash.encode()).hexdigest()
         
         # Build the secure URL
         secure_url = (
-            f"{self.base_url}/secure/{file_key}"
+            f"{self.presigned_base_url_with_path}/{cleaned_file_key}"
             f"?md5={md5_hash}&expires={expires}"
         )
         

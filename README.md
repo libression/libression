@@ -279,6 +279,25 @@
 
                 autoindex on;
             }
+
+            # Secure path for presigned URLs
+            location /secure/ {
+                alias /Users/ernest/Downloads/dummy_photos/;  # Adjust this path if necessary
+
+                auth_basic off;
+
+                # Allow only GET requests for presigned URLs
+                limit_except GET {
+                    deny all;  # Deny all methods except GET
+                }
+
+                dav_access user:rw group:rw all:r;
+
+                client_max_body_size 0;
+                create_full_put_path off;
+
+                autoindex off;  # Disable autoindexing for security
+            }
         }
     }
 
