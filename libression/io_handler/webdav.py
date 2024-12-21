@@ -1,12 +1,13 @@
 import enum
 import io
 import logging
-import time
 import typing
 import hashlib
 import datetime
 import requests
 import libression.entities.io
+import time
+import base64
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
@@ -45,9 +46,9 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         username: str,
         password: str,
         secret_key: str,
+        url_path: str,
+        presigned_url_path: str,
         verify_ssl: bool = True,
-        url_path: str = "",
-        presigned_url_path: str = "",
     ):
         """
         Given webdav setting:
@@ -78,6 +79,11 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         self.auth = (username, password)
         self.verify_ssl = verify_ssl
         self.secret_key = secret_key
+
+        if not self.url_path:
+            raise ValueError("url_path must be not be empty string")
+        if not self.presigned_url_path:
+            raise ValueError("presigned_url_path must be not be empty string")
 
     @property
     def presigned_base_url_with_path(self) -> str:
@@ -251,32 +257,37 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         
         return files
 
-    def _presigned_url(self, expires_in_seconds: int, file_key: str) -> str:
-        expires = int(time.time()) + expires_in_seconds
+    def _presigned_url(
+        self,
+        expires_in_seconds: int,
+        file_key: str,
+    ) -> str:
+        current_time = int(datetime.datetime.now().timestamp())
+        expires = current_time + expires_in_seconds
 
         cleaned_file_key = file_key.lstrip('/')
+        uri = f"/{self.presigned_url_path}/{cleaned_file_key}"
 
-        # Create the md5 hash that Nginx expects
-        if self.presigned_url_path:
-            string_to_hash = f"{expires}/{self.presigned_url_path}/{cleaned_file_key} {self.secret_key}"
-        else:
-            string_to_hash = f"{expires}/{cleaned_file_key} {self.secret_key}"
+        string_to_hash = f"{expires}{uri} {self.secret_key}"
+        md5_hash = base64.urlsafe_b64encode(hashlib.md5(string_to_hash.encode()).digest()).decode()
 
-        md5_hash = hashlib.md5(string_to_hash.encode()).hexdigest()
-        
+        # TODO: check if macos needs this (old code that works...but not sure if its secured link)
+        # string_to_hash = f"{expires}/{self.presigned_url_path}/{cleaned_file_key} {self.secret_key}"
+        # md5_hash = hashlib.md5(string_to_hash.encode()).hexdigest()
+
         # Build the secure URL
         secure_url = (
             f"{self.presigned_base_url_with_path}/{cleaned_file_key}"
             f"?md5={md5_hash}&expires={expires}"
         )
-        
+
         return secure_url
 
 
-    def get_urls(
+    def get_readonly_urls(
         self,
         file_keys: typing.Iterable[str],
-        expires_in_seconds: int = 60 * 60 * 7
+        expires_in_seconds: int,
     ) -> libression.entities.io.GetUrlsResponse:
         """
         Generate a presigned URL that's valid for expires_in seconds
@@ -284,14 +295,14 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         """
         _validate_paths(file_keys)
 
-        get_urls_response = dict()
+        get_readonly_urls_response = dict()
 
         for file_key in file_keys:
-            get_urls_response[file_key] = self._presigned_url(
+            get_readonly_urls_response[file_key] = self._presigned_url(
                 expires_in_seconds,
                 file_key
             )
-        
+
         return libression.entities.io.GetUrlsResponse(
-            urls=get_urls_response
+            urls=get_readonly_urls_response
         )

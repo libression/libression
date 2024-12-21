@@ -59,7 +59,7 @@ class IOHandler(typing.Protocol):
         """List all objects in the "directory"."""
         ...
 
-    def get_urls(self, file_keys: typing.Iterable[str]) -> GetUrlsResponse:
+    def get_readonly_urls(self, file_keys: typing.Iterable[str]) -> GetUrlsResponse:
         ...
 
     # Optional overrides if needed

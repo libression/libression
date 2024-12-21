@@ -3,10 +3,11 @@ import uuid
 import requests
 from libression.entities.io import FileStreams, FileKeyMapping
 from libression.io_handler.webdav import WebDAVIOHandler
+import time
 
 BASE_URL = "https://localhost"
 URL_PATH = "dummy_photos"
-PRESIGNED_URL_PATH = "secure"
+PRESIGNED_URL_PATH = "readonly_dummy_photos"
 USERNAME = "chilledgeek"
 PASSWORD = "chilledgeek"
 SECRET_KEY = "chilledgeek_secret_key"
@@ -25,9 +26,9 @@ def manual_test_webdav():
         username=USERNAME,
         password=PASSWORD,
         secret_key=SECRET_KEY,
-        verify_ssl=False,  # Webdav should allow local only
         url_path=URL_PATH,
         presigned_url_path=PRESIGNED_URL_PATH,
+        verify_ssl=False,  # Webdav should allow local only
     )
 
     # Test vars
@@ -74,9 +75,15 @@ def manual_test_webdav():
     assert download_streams.file_streams[f"{FOLDER_NAME}/{FILE_KEY}"].read() == TEST_DATA
 
     # Test get_url
-    presigned_urls = handler.get_urls([FILE_KEY, f"{FOLDER_NAME}/{FILE_KEY}"])
-    assert requests.get(presigned_urls.urls[FILE_KEY], verify=False).content == TEST_DATA
-    assert requests.get(presigned_urls.urls[f"{FOLDER_NAME}/{FILE_KEY}"], verify=False).content == TEST_DATA
+    presigned_urls = handler.get_readonly_urls(
+        [FILE_KEY, f"{FOLDER_NAME}/{FILE_KEY}"],
+        expires_in_seconds=3600,
+    )
+    root_response = requests.get(presigned_urls.urls[FILE_KEY], verify=False)
+    nested_response = requests.get(presigned_urls.urls[f"{FOLDER_NAME}/{FILE_KEY}"], verify=False)
+
+    assert root_response.content == TEST_DATA
+    assert nested_response.content == TEST_DATA
 
     # Test delete
     handler.delete([f"{FOLDER_NAME}/{FILE_KEY}"])
