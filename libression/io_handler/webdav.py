@@ -4,11 +4,11 @@ import logging
 import typing
 import hashlib
 import datetime
-import requests
 import libression.entities.io
-import time
 import base64
-from bs4 import BeautifulSoup
+import bs4
+import httpx
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -20,16 +20,6 @@ class WebDAVServerType(enum.Enum):
     APACHE = enum.auto()
     NGINX = enum.auto()
 
-
-def _validate_paths(object_keys: typing.Iterable[str]) -> None:
-    if not isinstance(object_keys, typing.Iterable):
-        raise ValueError("Object keys must be a sequence")
-    if isinstance(object_keys, str):
-        raise ValueError("Object keys must not be a string (use a list or tuple?)")
-    for key in object_keys:
-        if key.startswith('/'):
-            raise ValueError("Object key must not start with a slash")
-    return None
 
 def _parse_nginx_ls_size(size_text: str) -> int:
     """Convert Nginx size string to bytes (plain numbers only)"""
@@ -70,15 +60,15 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             username: The username to use for authentication
             password: The password to use for authentication
             secret_key: The secret key to use for presigned URLs
-            verify_ssl: Whether to verify SSL certificates
+            httpx_client: The httpx client to use for requests  
         """
 
         self.base_url = base_url.rstrip('/')
         self.url_path = url_path.rstrip('/').lstrip('/')
         self.presigned_url_path = presigned_url_path.rstrip('/').lstrip('/')
         self.auth = (username, password)
-        self.verify_ssl = verify_ssl
         self.secret_key = secret_key
+        self.verify_ssl = verify_ssl
 
         if not self.url_path:
             raise ValueError("url_path must be not be empty string")
@@ -105,97 +95,172 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         else:
             return self.base_url
 
-    def get(self, file_keys: typing.Iterable[str]) -> libression.entities.io.FileStreams:
-        _validate_paths(file_keys)
+    def _create_httpx_client(
+        self,
+        verify_ssl: bool | None = None,
+        follow_redirects: bool | None = None,
+    ) -> httpx.AsyncClient:
+        if verify_ssl is None:
+            verify_ssl = self.verify_ssl
+        if follow_redirects is None:
+            follow_redirects = True
 
-        streams = dict()
-        for file_key in file_keys:
-            response = requests.get(
-                f"{self.base_url_with_path}/{file_key}",
-                auth=self.auth,
-                verify=self.verify_ssl,
-                stream=True
-            )
-            response.raise_for_status()
-            streams[file_key] = io.BytesIO(response.content)
-
-        return libression.entities.io.FileStreams(file_streams=streams)
-
-    def upload(self, file_streams: libression.entities.io.FileStreams) -> None:
-        _validate_paths(file_streams.file_streams.keys())
-
-        for file_key, stream in file_streams.file_streams.items():
-            stream.seek(0)
-            content = stream.read()
-            
-            response = requests.put(
-                f"{self.base_url_with_path}/{file_key}",
-                data=content,
-                auth=self.auth,
-                verify=self.verify_ssl
-            )
-            response.raise_for_status()
-
-        return None
-
-    def delete(self, file_keys: typing.Iterable[str]) -> None:
-        _validate_paths(file_keys)
-        for file_key in file_keys:
-            response = requests.delete(
-                f"{self.base_url_with_path}/{file_key}",
-                auth=self.auth,
-                verify=self.verify_ssl
-            )
-            response.raise_for_status()
-
-    def list_objects(self, dirpath: str = "", subfolder_contents: bool = False) -> list[libression.entities.io.ListDirectoryObject]:
-        """List directory contents using GET request and parsing Nginx's autoindex
-        
-        Args:
-            dirpath: The directory path to list
-            subfolder_contents: If True, only show immediate contents (like ls)
-                              If False, show all nested contents recursively
-        """
-        _validate_paths([dirpath])
-        
-        if subfolder_contents:
-            # Recursive listing
-            return self._list_recursive(dirpath)
-        else:
-            # Single directory listing (like ls)
-            return self._list_single_directory(dirpath)
-
-    def _list_single_directory(self, dirpath: str) -> list[libression.entities.io.ListDirectoryObject]:
-        """List contents of a single directory (non-recursive)"""
-        url = f"{self.base_url_with_path}/{dirpath.lstrip('/')}"
-        logger.debug(f"GET request to: {url}")
-        
-        response = requests.get(
-            url,
-            auth=self.auth,
-            verify=self.verify_ssl,
-            headers={'Accept': 'text/html'}
+        return httpx.AsyncClient(
+            verify=verify_ssl,
+            follow_redirects=follow_redirects,
         )
-        response.raise_for_status()
-        
-        return self._parse_directory_listing(response.text, dirpath)
 
-    def _list_recursive(
+    async def _upload_single(
+        self, 
+        file_key: str,
+        file_stream: typing.IO[bytes],
+        chunk_byte_size: int,  # 1024 * 1024 is 1MB chunks
+        opened_client: httpx.AsyncClient,
+    ) -> None:
+        """
+        Upload a single stream (in chunks)
+        Let caller manage (open/close) the client context
+        Not meant to be used directly (thus private)
+        """
+
+        if chunk_byte_size <= 0:
+            raise ValueError("chunk_byte_size must be positive")
+        if opened_client.is_closed:
+            raise ValueError("httpx client is closed")
+
+        async def file_sender():  # func in func annoyingly but need to reference file_stream
+            while True:
+                chunk = file_stream.read(chunk_byte_size)  # Read only chunk_byte_size bytes
+                if not chunk:  # EOF
+                    break
+                yield chunk  # Send just this chunk
+                # Memory is freed after each chunk is sent
+
+        # httpx will consume the generator one chunk at a time
+        response = await opened_client.put(
+            f"{self.base_url_with_path}/{file_key}",
+            auth=self.auth,
+            content=file_sender()  # Generator is consumed lazily
+        )
+        
+        response.raise_for_status()        
+
+    async def upload(
+        self,
+        file_streams: libression.entities.io.FileStreams,
+        chunk_byte_size: int,  # 1024 * 1024 is 1MB chunks
+    ) -> None:
+        """
+        Upload multiple streams (in chunks)
+        """
+        async with self._create_httpx_client() as opened_client:
+            upload_tasks = [
+                self._upload_single(
+                    file_key,
+                    stream.file_stream,
+                    chunk_byte_size,
+                    opened_client
+                )
+                for file_key, stream in file_streams.file_streams.items()
+            ]
+
+            # Execute all uploads concurrently
+            await asyncio.gather(*upload_tasks)
+
+    def get_readonly_urls(
+        self,
+        file_keys: typing.Iterable[str],
+        expires_in_seconds: int,
+    ) -> libression.entities.io.GetUrlsResponse:
+        """
+        Generate a presigned URL that's valid for expires_in seconds
+        Returns presigned URL that can be accessed without authentication
+        """
+
+        get_readonly_urls_response = dict()
+
+        for file_key in file_keys:
+            get_readonly_urls_response[file_key] = self._presigned_url(
+                expires_in_seconds,
+                file_key
+            )
+
+        return libression.entities.io.GetUrlsResponse(
+            urls=get_readonly_urls_response
+        )
+
+    async def _delete_single(
+        self,
+        file_key: str,
+        opened_client: httpx.AsyncClient,
+        raise_on_error: bool,
+    ) -> None:
+        """
+        Let caller manage (open/close) the client context
+        Not meant to be used directly (thus private)
+        """
+
+        if opened_client.is_closed:
+            raise ValueError("httpx client is closed")
+
+        response = await opened_client.delete(
+            f"{self.base_url_with_path}/{file_key}",
+            auth=self.auth,
+        )
+        if raise_on_error:
+            response.raise_for_status()
+
+    async def delete(
+        self,
+        file_keys: typing.Iterable[str],
+        raise_on_error: bool = True,
+    ) -> None:
+        unique_file_keys = list(set(file_keys))
+
+        async with self._create_httpx_client() as opened_client:
+            delete_tasks = [
+                self._delete_single(key, opened_client, raise_on_error)
+                for key in unique_file_keys
+            ]
+            await asyncio.gather(*delete_tasks)
+
+    async def _list_single_directory(
         self,
         dirpath: str,
-        max_folder_crawl: int = 100
+        opened_client: httpx.AsyncClient,
     ) -> list[libression.entities.io.ListDirectoryObject]:
-        """List directory contents recursively"""
+        """
+        List contents of a single directory (non-recursive)
+        Let caller manage (open/close) the client context
+        Not meant to be used directly (thus private)
+        """
+
+        url = f"{self.base_url_with_path}/{dirpath.lstrip('/')}"
+        
+        response = await opened_client.get(
+            url,
+            auth=self.auth,
+            headers={'Accept': 'text/html'},
+        )
+        response.raise_for_status()
+            
+        return self._parse_directory_listing(response.text, dirpath)
+
+    async def _list_recursive(
+        self,
+        dirpath: str,
+        opened_client: httpx.AsyncClient,
+        max_folder_crawl: int = 100,
+    ) -> list[libression.entities.io.ListDirectoryObject]:
         results = []
         to_visit = [dirpath]
         folder_crawl_count = 0
         
         while to_visit and folder_crawl_count <= max_folder_crawl:
             current_dir = to_visit.pop(0)
-            dir_contents = self._list_single_directory(current_dir)
+            dir_contents = await self._list_single_directory(current_dir, opened_client)
             results.extend(dir_contents)
             
-            # Add subdirectories to visit
             for item in dir_contents:
                 if item.is_dir:
                     to_visit.append(item.absolute_path)
@@ -207,9 +272,28 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
 
         return results
 
+    async def list_objects(
+        self,
+        dirpath: str = "",
+        subfolder_contents: bool = False
+    ) -> list[libression.entities.io.ListDirectoryObject]:
+        """List directory contents using GET request and parsing Nginx's autoindex
+        
+        Args:
+            dirpath: The directory path to list
+            subfolder_contents: If True, only show immediate contents (like ls)
+                              If False, show all nested contents recursively
+        """
+        async with self._create_httpx_client() as opened_client:
+
+            if subfolder_contents:
+                return await self._list_recursive(dirpath, opened_client)
+            else:
+                return await self._list_single_directory(dirpath, opened_client)
+
     def _parse_directory_listing(self, html: str, dirpath: str) -> list[libression.entities.io.ListDirectoryObject]:
         """Parse Nginx autoindex HTML output"""
-        soup = BeautifulSoup(html, 'html.parser')
+        soup = bs4.BeautifulSoup(html, 'html.parser')
         files = []
         
         pre = soup.find('pre')
@@ -283,26 +367,59 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
 
         return secure_url
 
-
-    def get_readonly_urls(
+    async def _copy_single(
         self,
-        file_keys: typing.Iterable[str],
-        expires_in_seconds: int,
-    ) -> libression.entities.io.GetUrlsResponse:
-        """
-        Generate a presigned URL that's valid for expires_in seconds
-        Returns presigned URL that can be accessed without authentication
-        """
-        _validate_paths(file_keys)
-
-        get_readonly_urls_response = dict()
-
-        for file_key in file_keys:
-            get_readonly_urls_response[file_key] = self._presigned_url(
-                expires_in_seconds,
-                file_key
-            )
-
-        return libression.entities.io.GetUrlsResponse(
-            urls=get_readonly_urls_response
+        source_key: str,
+        destination_key: str,
+        opened_client: httpx.AsyncClient,
+        delete_source: bool,
+        allow_missing: bool,
+        chunk_byte_size: int,  # No longer needed but kept for compatibility
+    ) -> None:
+        """Use WebDAV COPY/MOVE for efficient file operations"""
+        method = "MOVE" if delete_source else "COPY"
+        
+        # Construct source and destination URLs
+        source_url = f"{self.base_url_with_path}/{source_key}"
+        destination_url = f"{self.base_url_with_path}/{destination_key}"
+        
+        # WebDAV requires Destination header with absolute URL
+        headers = {
+            "Destination": destination_url
+        }
+        
+        response = await opened_client.request(
+            method,
+            source_url,
+            auth=self.auth,
+            headers=headers
         )
+        
+        if response.status_code == 404:
+            if not allow_missing:
+                raise ValueError(f"File {source_key} not found")
+            return None
+        
+        response.raise_for_status()
+
+
+    async def copy(
+        self,
+        file_key_mappings: typing.Iterable[libression.entities.io.FileKeyMapping],
+        delete_source: bool,  # False: copy, True: paste
+        chunk_byte_size: int,
+        allow_missing: bool = False,
+    ) -> None:
+        async with self._create_httpx_client() as opened_client:
+            copy_tasks = [
+                self._copy_single(
+                    mapping.source_key,
+                    mapping.destination_key,
+                    opened_client,
+                    delete_source,
+                    allow_missing,
+                    chunk_byte_size
+                )
+                for mapping in file_key_mappings
+            ]
+            await asyncio.gather(*copy_tasks)

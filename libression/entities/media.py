@@ -1,12 +1,30 @@
 import enum
 import typing
+import mimetypes
 
-class HeifMimeType(enum.Enum):
+
+class SupportedMimeType(enum.Enum):
+    @classmethod
+    def from_value(cls, value: str) -> typing.Union['SupportedMimeType', None]:
+        for member in cls:
+            if member.value == value:
+                return member
+        return None
+
+    @classmethod
+    def from_filename(cls, filename: str) -> typing.Union['SupportedMimeType', None]:
+        mime_type, _ = mimetypes.guess_type(filename)
+        if mime_type is None:
+            return None
+        return cls.from_value(mime_type)
+
+
+class HeifMimeType(SupportedMimeType):
     HEIC = 'image/heic'
     HEIF = 'image/heif'
 
 
-class OpenCvProccessableImageMimeType(enum.Enum):
+class OpenCvProccessableImageMimeType(SupportedMimeType):
     JPEG = 'image/jpeg'
     PNG = 'image/png'
     TIFF = 'image/tiff'
@@ -25,19 +43,10 @@ class OpenCvProccessableImageMimeType(enum.Enum):
     X_XWINDOWDUMP = 'image/x-xwindowdump'
 
 
-class AvProccessableMimeType(enum.Enum):
+class AvProccessableMimeType(SupportedMimeType):
     GIF = 'image/gif'  # imdecode in opencv doesn't handle GIFs well
     MP4 = 'video/mp4'
     MPEG = 'video/mpeg'
     QUICKTIME = 'video/quicktime'
     WEBM = 'video/webm'
     X_MS_VIDEO = 'video/x-msvideo'  # AVI
-
-
-# Type alias for when either type is acceptable
-SupportedMimeType = typing.Union[
-    OpenCvProccessableImageMimeType,
-    AvProccessableMimeType,
-    HeifMimeType,
-]
-

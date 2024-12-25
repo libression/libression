@@ -1,8 +1,7 @@
 import boto3
 import logging
 import datetime
-from typing import Dict, IO, List
-
+import typing
 import libression.entities.io
 
 logger = logging.getLogger(__name__)
@@ -22,7 +21,7 @@ class S3IOHandler(libression.entities.io.IOHandler):
             endpoint_url=endpoint_url,
         )
 
-    def upload(self, file_streams: Dict[str, IO[bytes]]) -> None:
+    def upload(self, file_streams: dict[str, typing.IO[bytes]]) -> None:
         for filepath, stream in file_streams.items():
             try:
                 stream.seek(0)
@@ -37,7 +36,7 @@ class S3IOHandler(libression.entities.io.IOHandler):
                 logger.error(f"Upload failed for {filepath}: {e}")
                 raise
 
-    def list_objects(self, dirpath: str = "", subfolder_contents: bool = False) -> List[libression.entities.io.ListDirectoryObject]:
+    def list_objects(self, dirpath: str = "", subfolder_contents: bool = False) -> list[libression.entities.io.ListDirectoryObject]:
         """
         List objects in S3 bucket with directory-like hierarchy
         
@@ -150,7 +149,7 @@ class S3IOHandler(libression.entities.io.IOHandler):
             Key=filepath.lstrip('/')
         )
 
-    def bytestream(self, filepath: str) -> IO[bytes]:
+    def bytestream(self, filepath: str) -> typing.IO[bytes]:
         """Get a file's contents as a byte stream"""
         try:
             response = self.client.get_object(

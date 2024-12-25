@@ -1,7 +1,7 @@
 import datetime
 import dataclasses
 import typing
-
+import libression.entities.media
 
 @dataclasses.dataclass
 class FileKeyMapping:
@@ -10,8 +10,15 @@ class FileKeyMapping:
 
 
 @dataclasses.dataclass
+class FileStream:
+    file_stream: typing.IO[bytes]
+    file_byte_size: int
+    mime_type: libression.entities.media.SupportedMimeType | None = None
+
+
+@dataclasses.dataclass
 class FileStreams:
-    file_streams: dict[str, typing.IO[bytes]]
+    file_streams: dict[str, FileStream]
 
 
 @dataclasses.dataclass
@@ -38,56 +45,24 @@ class IOHandler(typing.Protocol):
     best to have fully qualified filepaths
     """
 
-    # Needs to be defined by IOHandler implementation
-    def get(self, file_keys: typing.Iterable[str]) -> FileStreams:
-        """Get multiple objects as streams."""
+    async def upload(self, file_streams: FileStreams, chunk_byte_size: int) -> None:
         ...
 
-
-    def upload(self, file_streams: FileStreams) -> None:
-        """
-        Upload multiple streams.
-        filepaths and streams must be same length
-        """
+    def get_readonly_urls(self, file_keys: typing.Iterable[str], expires_in_seconds: int) -> GetUrlsResponse:
         ...
 
-    def delete(self, file_keys: typing.Iterable[str]) -> None:
-        """Delete multiple objects."""
+    async def delete(self, file_keys: typing.Iterable[str]) -> None:
         ...
 
-    def list_objects(self, dirpath: str, subfolder_contents: bool = False) -> list[ListDirectoryObject]:
+    async def list_objects(self, dirpath: str, subfolder_contents: bool = False) -> list[ListDirectoryObject]:
         """List all objects in the "directory"."""
         ...
 
-    def get_readonly_urls(self, file_keys: typing.Iterable[str]) -> GetUrlsResponse:
+    async def copy(
+        self,
+        file_key_mappings: typing.Iterable[FileKeyMapping],
+        delete_source: bool,  # False: copy, True: paste
+        chunk_byte_size: int,
+        allow_missing: bool = False,
+    ) -> None:
         ...
-
-    # Optional overrides if needed
-    def copy(
-        self,
-        file_key_mappings: typing.Iterable[FileKeyMapping],
-    ) -> None:
-        """
-        default implementation does pass data between client/server
-        best to override if possible to just have the server do the entire copy
-        """
-        for file_key_mapping in file_key_mappings:
-            streams = self.get([file_key_mapping.source_key])
-            self.upload(
-                FileStreams(
-                    file_streams={
-                        file_key_mapping.destination_key: streams.file_streams[file_key_mapping.source_key]
-                    }
-                )
-            )
-
-    def move(
-        self,
-        file_key_mappings: typing.Iterable[FileKeyMapping],
-    ) -> None:
-        """
-        default implementation does pass data between client/server
-        best to override if possible to just have the server do the entire move
-        """
-        self.copy(file_key_mappings)
-        self.delete([file_key_mapping.source_key for file_key_mapping in file_key_mappings])

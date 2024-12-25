@@ -4,7 +4,7 @@ import numpy
 import cv2
 import libression.thumbnail
 import libression.entities.media
-from PIL import Image
+import PIL.Image
 
 
 # minimal_image parameterized fixture
@@ -21,7 +21,7 @@ def test_generate_image_thumbnail(minimal_image, mime_type):
     byte_stream = io.BytesIO(minimal_image)
 
     # Generate the thumbnail
-    thumbnail = libression.thumbnail.generate(byte_stream, 3, mime_type)
+    thumbnail = libression.thumbnail.image.generate(byte_stream, 3, mime_type)
 
     # Convert thumbnail bytes back to image to check dimensions
     nparr = numpy.frombuffer(thumbnail, numpy.uint8)
@@ -45,7 +45,7 @@ def test_av_generate_video_thumbnail(minimal_image, mime_type):
     byte_stream = io.BytesIO(minimal_image)
 
     # Generate the thumbnail
-    thumbnail = libression.thumbnail.generate(byte_stream, 3, mime_type)
+    thumbnail = libression.thumbnail.image.generate(byte_stream, 3, mime_type)
 
     # Basic checks
     assert thumbnail is not None, "Thumbnail should not be None"
@@ -54,7 +54,7 @@ def test_av_generate_video_thumbnail(minimal_image, mime_type):
 
     # Check if it's a valid GIF
     gif_stream = io.BytesIO(thumbnail)
-    gif = Image.open(gif_stream)
+    gif = PIL.Image.open(gif_stream)
     assert gif.format == 'GIF', "Thumbnail should be a GIF"
     
     # Check dimensions
