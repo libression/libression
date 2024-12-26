@@ -73,8 +73,9 @@ class DBClient:
                         action_type,
                         thumbnail_key,
                         thumbnail_checksum,
-                        thumbnail_phash
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        thumbnail_phash,
+                        mime_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     RETURNING id
                     """,
                     (
@@ -84,6 +85,7 @@ class DBClient:
                         entry.thumbnail_key,
                         entry.thumbnail_checksum,
                         entry.thumbnail_phash,
+                        entry.mime_type,
                     )
                 )
                 ids.append(cursor.fetchone()[0])

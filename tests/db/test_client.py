@@ -20,7 +20,8 @@ def sample_entries():
             file_key="test1.jpg",
             thumbnail_key="thumb1.jpg",
             thumbnail_checksum="abc123",
-            thumbnail_phash="def456"
+            thumbnail_phash="def456",
+            mime_type="image/jpeg"
         )
     ]
 
@@ -35,6 +36,7 @@ def test_insert_files(db_client, sample_entries):
     assert state['file_key'] == "test1.jpg"
     assert state['thumbnail_checksum'] == "abc123"
     assert state['action_type'] == "CREATE"
+    assert state['mime_type'] == "image/jpeg"
 
 
 def test_file_history(db_client, sample_entries):

@@ -19,6 +19,7 @@ def upgrade():
         sa.Column('file_entity_uuid', sa.String(36), nullable=False),  # UUID for tracking file history (file_actions + edits)
         sa.Column('file_key', sa.String(), nullable=False),  # path to file (webdav/s3)
         sa.Column('action_type', sa.String(), nullable=False),
+        sa.Column('mime_type', sa.String(), nullable=True),  # Adding MIME type column
         # Optional fields (thumbnails and phash can fail ... or be refreshed)
         sa.Column('thumbnail_key', sa.String(), nullable=True),  # path to thumbnail (webdav/s3)
         sa.Column('thumbnail_checksum', sa.String(64), nullable=True),  # SHA256

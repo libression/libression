@@ -66,6 +66,7 @@ class DBFileEntry(typing.NamedTuple):
     thumbnail_phash: str | None
     action_type: DBFileAction
     file_entity_uuid: str
+    mime_type: str | None
 
     # Auto-generated fields
     table_id: int | None = None 
@@ -76,7 +77,8 @@ def new_db_file_entry(
     file_key: str,
     thumbnail_key: str | None = None,
     thumbnail_checksum: str | None = None,
-    thumbnail_phash: str | None = None
+    thumbnail_phash: str | None = None,
+    mime_type: str | None = None,
 ) -> 'DBFileEntry':
     return DBFileEntry(
         file_key=file_key,
@@ -85,8 +87,9 @@ def new_db_file_entry(
         thumbnail_phash=thumbnail_phash,
         action_type=DBFileAction.CREATE,
         file_entity_uuid=str(uuid.uuid4()),
+        mime_type=mime_type,
         table_id=None,  # explicitly None
-        created_at=None  # explicitly None
+        created_at=None,  # explicitly None
     )
 
 def existing_db_file_entry(
@@ -95,7 +98,8 @@ def existing_db_file_entry(
     thumbnail_checksum: str | None,
     thumbnail_phash: str | None,
     action_type: DBFileAction,
-    file_entity_uuid: str
+    file_entity_uuid: str,
+    mime_type: str | None = None,
 ) -> 'DBFileEntry':
     """Factory method for actions on existing files."""
     if action_type == DBFileAction.CREATE:
@@ -108,6 +112,7 @@ def existing_db_file_entry(
         thumbnail_phash=thumbnail_phash,
         action_type=action_type,
         file_entity_uuid=file_entity_uuid,
+        mime_type=mime_type,
         table_id=None,  # explicitly None
-        created_at=None  # explicitly None
+        created_at=None,  # explicitly None
     )
