@@ -6,7 +6,7 @@ import typing
 import alembic.command
 from alembic.config import Config
 
-import libression
+import libression.entities.db
 
 
 class DBClient:
@@ -340,7 +340,7 @@ class DBClient:
                     FROM file_actions f
                     JOIN latest_states ls ON f.file_key = ls.file_key
                         AND f.created_at = ls.latest_at
-                    LEFT JOIN file_tags ft ON ft.file_id = f.id
+                    LEFT JOIN file_tags ft ON ft.file_entity_uuid = f.file_entity_uuid
                     ORDER BY f.created_at DESC, f.id DESC
                 """,
                     chunk,
