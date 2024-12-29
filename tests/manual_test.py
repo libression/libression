@@ -1,10 +1,13 @@
+import asyncio
 import io
-import uuid
+import logging
 import time
+import uuid
+
 import httpx
+
 import libression.entities.io
 import libression.io_handler.webdav
-import asyncio
 
 BASE_URL = "https://localhost"
 URL_PATH = "dummy_photos"
@@ -19,11 +22,11 @@ TEST_DATA = b"Hello WebDAV!"
 FILE_KEY = f"{uuid.uuid4()}.txt"
 FOLDER_NAME = str(uuid.uuid4())
 
-import logging
 
 # Configure logging at the module level
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
 
 async def manual_test_webdav():
     # Initialize handler (adjust these credentials for your WebDAV server)
@@ -60,33 +63,34 @@ async def manual_test_webdav():
     found_root_files = [x for x in objects if x.filename == FILE_KEY]
 
     assert len(found_root_files) == 1
-    assert found_root_files[0].is_dir == False
+    assert not found_root_files[0].is_dir
     assert found_root_files[0].absolute_path == FILE_KEY
     assert found_root_files[0].size > 0
 
     found_nested_folders = [x for x in objects if x.filename == FOLDER_NAME]
     assert len(found_nested_folders) == 1
-    assert found_nested_folders[0].is_dir == True
+    assert found_nested_folders[0].is_dir
     assert found_nested_folders[0].absolute_path == FOLDER_NAME
 
     # Test list nested directory
     objects = await handler.list_objects(FOLDER_NAME)
     found_nested_files = [x for x in objects if x.filename == FILE_KEY]
-    
+
     # Add debug logging
     logger.debug(f"Found nested files: {found_nested_files}")
     if found_nested_files:
         logger.debug(f"File size: {found_nested_files[0].size}")
         logger.debug(f"Original test data size: {len(TEST_DATA)}")
-    
+
     assert len(found_nested_files) == 1
-    assert found_nested_files[0].is_dir == False
+    assert not found_nested_files[0].is_dir
     assert found_nested_files[0].filename == FILE_KEY
     assert found_nested_files[0].absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"
-    
+
     # Change this assertion to be more specific
-    assert found_nested_files[0].size == len(TEST_DATA), \
-        f"Expected size {len(TEST_DATA)}, got {found_nested_files[0].size}"
+    assert found_nested_files[0].size == len(
+        TEST_DATA
+    ), f"Expected size {len(TEST_DATA)}, got {found_nested_files[0].size}"
 
     # Test get_url
     presigned_urls = handler.get_readonly_urls(
@@ -94,7 +98,9 @@ async def manual_test_webdav():
         expires_in_seconds=3600,
     )
     root_response = httpx.get(presigned_urls.urls[FILE_KEY], verify=False)
-    nested_response = httpx.get(presigned_urls.urls[f"{FOLDER_NAME}/{FILE_KEY}"], verify=False)
+    nested_response = httpx.get(
+        presigned_urls.urls[f"{FOLDER_NAME}/{FILE_KEY}"], verify=False
+    )
 
     assert root_response.content == TEST_DATA
     assert nested_response.content == TEST_DATA
@@ -105,8 +111,12 @@ async def manual_test_webdav():
         expires_in_seconds=0,
     )
     time.sleep(1.1)
-    timedout_root_response = httpx.get(timedout_presigned_urls.urls[FILE_KEY], verify=False)
-    timedout_nested_response = httpx.get(timedout_presigned_urls.urls[f"{FOLDER_NAME}/{FILE_KEY}"], verify=False)
+    timedout_root_response = httpx.get(
+        timedout_presigned_urls.urls[FILE_KEY], verify=False
+    )
+    timedout_nested_response = httpx.get(
+        timedout_presigned_urls.urls[f"{FOLDER_NAME}/{FILE_KEY}"], verify=False
+    )
 
     assert timedout_root_response.status_code == 410
     assert timedout_nested_response.status_code == 410
@@ -114,7 +124,9 @@ async def manual_test_webdav():
     # Test delete
     await handler.delete([f"{FOLDER_NAME}/{FILE_KEY}"], raise_on_error=True)
     objects = await handler.list_objects()
-    assert len([x for x in objects if x.absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"]) == 0
+    assert (
+        len([x for x in objects if x.absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"]) == 0
+    )
 
     # Test move
     await handler.copy(
@@ -128,8 +140,10 @@ async def manual_test_webdav():
         chunk_byte_size=CHUNK_BYTE_SIZE,
     )
     objects = await handler.list_objects(FOLDER_NAME)
-    assert len([x for x in objects if x.absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"]) == 1
-    assert len([x for x in objects if x.absolute_path == f"FILE_KEY"]) == 0
+    assert (
+        len([x for x in objects if x.absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"]) == 1
+    )
+    assert len([x for x in objects if x.absolute_path == f"{FILE_KEY}"]) == 0
 
     # Test copy
     await handler.copy(
@@ -146,27 +160,35 @@ async def manual_test_webdav():
     assert len([x for x in objects if x.absolute_path == FILE_KEY]) == 1
 
     objects = await handler.list_objects(FOLDER_NAME)
-    assert len([x for x in objects if x.absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"]) == 1
-
+    assert (
+        len([x for x in objects if x.absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"]) == 1
+    )
 
     # Teardown
     await handler.delete([f"{FOLDER_NAME}/{FILE_KEY}", FILE_KEY])
     objects = await handler.list_objects()
-    assert len([x for x in objects if x.absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"]) == 0
-    assert len([x for x in objects if x.absolute_path == f"FILE_KEY"]) == 0
+    assert (
+        len([x for x in objects if x.absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"]) == 0
+    )
+    assert len([x for x in objects if x.absolute_path == f"{FILE_KEY}"]) == 0
 
     # Test get_url (deleted/not found)
     deleted_presigned_urls = handler.get_readonly_urls(
         [FILE_KEY, f"{FOLDER_NAME}/{FILE_KEY}"],
         expires_in_seconds=3600,
     )
-    deleted_root_response = httpx.get(deleted_presigned_urls.urls[FILE_KEY], verify=False)
-    deleted_nested_response = httpx.get(deleted_presigned_urls.urls[f"{FOLDER_NAME}/{FILE_KEY}"], verify=False)
+    deleted_root_response = httpx.get(
+        deleted_presigned_urls.urls[FILE_KEY], verify=False
+    )
+    deleted_nested_response = httpx.get(
+        deleted_presigned_urls.urls[f"{FOLDER_NAME}/{FILE_KEY}"], verify=False
+    )
 
     assert deleted_root_response.status_code == 404
     assert deleted_nested_response.status_code == 404
 
     print("Manual test passed")
+
 
 if __name__ == "__main__":
     asyncio.run(manual_test_webdav())

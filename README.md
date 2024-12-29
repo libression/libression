@@ -15,7 +15,7 @@ We need 3 things:
 
 ### Minio
 - Minio can serve directories/files (`</path/of/where/you/store/media>`) as an S3 object store
-- That said, `minio.RELEASE.2022-05-26T05-48-41Z` is the last version that can directly serve 
+- That said, `minio.RELEASE.2022-05-26T05-48-41Z` is the last version that can directly serve
 - directories/files as an S3 object store (and vice versa)
 - We need this for our web app to interact with this content
 - Vaguely follow this ([guide](https://min.io/download#_)), but install the archived version!
@@ -49,7 +49,7 @@ We need 3 things:
   - Configure nginx
     - Modify the `/etc/nginx/conf.d/webdav.conf` file
       - Only the `server` block is required (refer to [`samples/linux_webdav.conf`](samples/linux_webdav.conf))
-      - The rest should be in `/etc/nginx/nginx.conf` (comment out the server block if it clashes)      
+      - The rest should be in `/etc/nginx/nginx.conf` (comment out the server block if it clashes)
     - run `sudo nginx -t` to test the configs are working
   - Create folders + permissions
     ``` bash

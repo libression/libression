@@ -1,10 +1,10 @@
-version: '3'
+version: "3"
 services:
   web:
     build:
-        dockerfile: web.Dockerfile
+      dockerfile: web.Dockerfile
     ports:
-     - "8000:8000"
+      - "8000:8000"
     environment:
       S3_ENDPOINT_URL: "http://host.docker.internal:9000"
       S3_ACCESS_KEY_ID: "custom_minioadmin"
@@ -15,7 +15,7 @@ services:
       - storage
   storage:
     build:
-        dockerfile: storage.Dockerfile
+      dockerfile: storage.Dockerfile
     ports:
       - "9000:9000"
       - "9001:9001"

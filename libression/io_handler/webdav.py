@@ -1,19 +1,22 @@
+import asyncio
+import base64
+import datetime
 import enum
-import io
+import hashlib
 import logging
 import typing
-import hashlib
-import datetime
-import libression.entities.io
-import base64
+
 import bs4
 import httpx
-import asyncio
+
+import libression.entities.io
 
 logger = logging.getLogger(__name__)
 
+
 class WebDAVServerType(enum.Enum):
     """Known WebDAV server types with sharing capabilities"""
+
     UNKNOWN = enum.auto()
     NEXTCLOUD = enum.auto()
     OWNCLOUD = enum.auto()
@@ -23,9 +26,9 @@ class WebDAVServerType(enum.Enum):
 
 def _parse_nginx_ls_size(size_text: str) -> int:
     """Convert Nginx size string to bytes (plain numbers only)"""
-    if not size_text or size_text == '-':
+    if not size_text or size_text == "-":
         return 0
-    
+
     return int(size_text)  # Size is always in bytes
 
 
@@ -60,12 +63,12 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             username: The username to use for authentication
             password: The password to use for authentication
             secret_key: The secret key to use for presigned URLs
-            httpx_client: The httpx client to use for requests  
+            httpx_client: The httpx client to use for requests
         """
 
-        self.base_url = base_url.rstrip('/')
-        self.url_path = url_path.rstrip('/').lstrip('/')
-        self.presigned_url_path = presigned_url_path.rstrip('/').lstrip('/')
+        self.base_url = base_url.rstrip("/")
+        self.url_path = url_path.rstrip("/").lstrip("/")
+        self.presigned_url_path = presigned_url_path.rstrip("/").lstrip("/")
         self.auth = (username, password)
         self.secret_key = secret_key
         self.verify_ssl = verify_ssl
@@ -111,7 +114,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         )
 
     async def _upload_single(
-        self, 
+        self,
         file_key: str,
         file_stream: typing.IO[bytes],
         chunk_byte_size: int,  # 1024 * 1024 is 1MB chunks
@@ -130,7 +133,9 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
 
         async def file_sender():  # func in func annoyingly but need to reference file_stream
             while True:
-                chunk = file_stream.read(chunk_byte_size)  # Read only chunk_byte_size bytes
+                chunk = file_stream.read(
+                    chunk_byte_size
+                )  # Read only chunk_byte_size bytes
                 if not chunk:  # EOF
                     break
                 yield chunk  # Send just this chunk
@@ -140,10 +145,10 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         response = await opened_client.put(
             f"{self.base_url_with_path}/{file_key}",
             auth=self.auth,
-            content=file_sender()  # Generator is consumed lazily
+            content=file_sender(),  # Generator is consumed lazily
         )
-        
-        response.raise_for_status()        
+
+        response.raise_for_status()
 
     async def upload(
         self,
@@ -156,10 +161,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         async with self._create_httpx_client() as opened_client:
             upload_tasks = [
                 self._upload_single(
-                    file_key,
-                    stream.file_stream,
-                    chunk_byte_size,
-                    opened_client
+                    file_key, stream.file_stream, chunk_byte_size, opened_client
                 )
                 for file_key, stream in file_streams.file_streams.items()
             ]
@@ -169,7 +171,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
 
     def get_readonly_urls(
         self,
-        file_keys: typing.Iterable[str],
+        file_keys: typing.Sequence[str],
         expires_in_seconds: int,
     ) -> libression.entities.io.GetUrlsResponse:
         """
@@ -181,13 +183,10 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
 
         for file_key in file_keys:
             get_readonly_urls_response[file_key] = self._presigned_url(
-                expires_in_seconds,
-                file_key
+                expires_in_seconds, file_key
             )
 
-        return libression.entities.io.GetUrlsResponse(
-            urls=get_readonly_urls_response
-        )
+        return libression.entities.io.GetUrlsResponse(urls=get_readonly_urls_response)
 
     async def _delete_single(
         self,
@@ -212,7 +211,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
 
     async def delete(
         self,
-        file_keys: typing.Iterable[str],
+        file_keys: typing.Sequence[str],
         raise_on_error: bool = True,
     ) -> None:
         unique_file_keys = list(set(file_keys))
@@ -236,14 +235,14 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         """
 
         url = f"{self.base_url_with_path}/{dirpath.lstrip('/')}"
-        
+
         response = await opened_client.get(
             url,
             auth=self.auth,
-            headers={'Accept': 'text/html'},
+            headers={"Accept": "text/html"},
         )
         response.raise_for_status()
-            
+
         return self._parse_directory_listing(response.text, dirpath)
 
     async def _list_recursive(
@@ -255,90 +254,96 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         results = []
         to_visit = [dirpath]
         folder_crawl_count = 0
-        
+
         while to_visit and folder_crawl_count <= max_folder_crawl:
             current_dir = to_visit.pop(0)
             dir_contents = await self._list_single_directory(current_dir, opened_client)
             results.extend(dir_contents)
-            
+
             for item in dir_contents:
                 if item.is_dir:
                     to_visit.append(item.absolute_path)
-            
+
             folder_crawl_count += 1
 
         if len(to_visit) > 0:
-            logger.warning(f"Max folder crawl count {max_folder_crawl} reached. {len(to_visit)} folders not explored.")
+            logger.warning(
+                f"Max folder crawl count {max_folder_crawl} reached. {len(to_visit)} folders not explored."
+            )
 
         return results
 
     async def list_objects(
-        self,
-        dirpath: str = "",
-        subfolder_contents: bool = False
+        self, dirpath: str = "", subfolder_contents: bool = False
     ) -> list[libression.entities.io.ListDirectoryObject]:
         """List directory contents using GET request and parsing Nginx's autoindex
-        
+
         Args:
             dirpath: The directory path to list
             subfolder_contents: If True, only show immediate contents (like ls)
                               If False, show all nested contents recursively
         """
         async with self._create_httpx_client() as opened_client:
-
             if subfolder_contents:
                 return await self._list_recursive(dirpath, opened_client)
             else:
                 return await self._list_single_directory(dirpath, opened_client)
 
-    def _parse_directory_listing(self, html: str, dirpath: str) -> list[libression.entities.io.ListDirectoryObject]:
+    def _parse_directory_listing(
+        self, html: str, dirpath: str
+    ) -> list[libression.entities.io.ListDirectoryObject]:
         """Parse Nginx autoindex HTML output"""
-        soup = bs4.BeautifulSoup(html, 'html.parser')
-        files = []
-        
-        pre = soup.find('pre')
+        soup = bs4.BeautifulSoup(html, "html.parser")
+        files: list[libression.entities.io.ListDirectoryObject] = []
+
+        pre = soup.find("pre")
         if not pre:
             return files
-        
+
         # Create a mapping of text -> href for all links
-        links = {a.text.strip(): a['href'] for a in pre.find_all('a')}
-        
+        links = {a.text.strip(): a["href"] for a in pre.find_all("a")}
+
         # Split the text and filter out empty lines and parent directory
-        lines = [line for line in pre.text.split('\n') 
-                if line.strip() and not line.startswith('../')]
-        
-        date_pattern = '%d-%b-%Y %H:%M'
-        
+        lines = [
+            line
+            for line in pre.text.split("\n")
+            if line.strip() and not line.startswith("../")
+        ]
+
+        date_pattern = "%d-%b-%Y %H:%M"
+
         for line in lines:
             parts = line.strip().split()
             raw_name = parts[0]
             if raw_name not in links:
                 continue
-            
-            is_dir = raw_name.endswith('/')
+
+            is_dir = raw_name.endswith("/")
             filename = raw_name[:-1] if is_dir else raw_name
-            
+
             href = links[raw_name]
-            absolute_path = (f"{dirpath.strip('/')}/{href.strip('/')}" 
-                            if dirpath else href.strip('/'))
-            
-            modified = datetime.datetime.strptime(
-                f"{parts[-3]} {parts[-2]}", 
-                date_pattern
+            absolute_path = (
+                f"{dirpath.strip('/')}/{href.strip('/')}"
+                if dirpath
+                else href.strip("/")
             )
-            
+
+            modified = datetime.datetime.strptime(
+                f"{parts[-3]} {parts[-2]}", date_pattern
+            )
+
             size = 0 if is_dir else _parse_nginx_ls_size(parts[-1])
-            
+
             files.append(
                 libression.entities.io.ListDirectoryObject(
                     filename=filename,
                     absolute_path=absolute_path,
                     size=size,
                     modified=modified,
-                    is_dir=is_dir
+                    is_dir=is_dir,
                 )
             )
-        
+
         return files
 
     def _presigned_url(
@@ -349,11 +354,13 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         current_time = int(datetime.datetime.now().timestamp())
         expires = current_time + expires_in_seconds
 
-        cleaned_file_key = file_key.lstrip('/')
+        cleaned_file_key = file_key.lstrip("/")
         uri = f"/{self.presigned_url_path}/{cleaned_file_key}"
 
         string_to_hash = f"{expires}{uri} {self.secret_key}"
-        md5_hash = base64.urlsafe_b64encode(hashlib.md5(string_to_hash.encode()).digest()).decode()
+        md5_hash = base64.urlsafe_b64encode(
+            hashlib.md5(string_to_hash.encode()).digest()
+        ).decode()
 
         # TODO: check if macos needs this (old code that works...but not sure if its secured link)
         # string_to_hash = f"{expires}/{self.presigned_url_path}/{cleaned_file_key} {self.secret_key}"
@@ -378,34 +385,28 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
     ) -> None:
         """Use WebDAV COPY/MOVE for efficient file operations"""
         method = "MOVE" if delete_source else "COPY"
-        
+
         # Construct source and destination URLs
         source_url = f"{self.base_url_with_path}/{source_key}"
         destination_url = f"{self.base_url_with_path}/{destination_key}"
-        
+
         # WebDAV requires Destination header with absolute URL
-        headers = {
-            "Destination": destination_url
-        }
-        
+        headers = {"Destination": destination_url}
+
         response = await opened_client.request(
-            method,
-            source_url,
-            auth=self.auth,
-            headers=headers
+            method, source_url, auth=self.auth, headers=headers
         )
-        
+
         if response.status_code == 404:
             if not allow_missing:
                 raise ValueError(f"File {source_key} not found")
             return None
-        
-        response.raise_for_status()
 
+        response.raise_for_status()
 
     async def copy(
         self,
-        file_key_mappings: typing.Iterable[libression.entities.io.FileKeyMapping],
+        file_key_mappings: typing.Sequence[libression.entities.io.FileKeyMapping],
         delete_source: bool,  # False: copy, True: paste
         chunk_byte_size: int,
         allow_missing: bool = False,
@@ -418,7 +419,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
                     opened_client,
                     delete_source,
                     allow_missing,
-                    chunk_byte_size
+                    chunk_byte_size,
                 )
                 for mapping in file_key_mappings
             ]

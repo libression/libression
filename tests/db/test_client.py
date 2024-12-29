@@ -1,6 +1,8 @@
 import pytest
-import libression.entities.db
+
 import libression.db.client
+import libression.entities.db
+
 
 @pytest.fixture
 def db_client(tmp_path):
@@ -12,6 +14,7 @@ def db_client(tmp_path):
     if db_path.exists():
         db_path.unlink()
 
+
 @pytest.fixture
 def sample_entries():
     """Create sample file entries for testing."""
@@ -21,33 +24,33 @@ def sample_entries():
             thumbnail_key="thumb1.jpg",
             thumbnail_checksum="abc123",
             thumbnail_phash="def456",
-            mime_type="image/jpeg"
+            mime_type="image/jpeg",
+            tags=["tag1", "tag2"],
         )
     ]
 
-def test_insert_files(db_client, sample_entries):
-    """Test inserting new files."""
-    ids = db_client.insert_to_files_table(sample_entries)
-    assert len(ids) == 1
-    
+
+def test_register_files(db_client, sample_entries):
+    """Test registering new files with tags."""
+    registered = db_client.register_files(sample_entries)
+    assert len(registered) == 1
+
     # Verify entries
-    state = db_client.get_file_state("test1.jpg")
-    assert state is not None
-    assert state['file_key'] == "test1.jpg"
-    assert state['thumbnail_checksum'] == "abc123"
-    assert state['action_type'] == "CREATE"
-    assert state['mime_type'] == "image/jpeg"
+    states = db_client.get_file_entries_by_file_keys(["test1.jpg"])
+    assert len(states) == 1
+    state = states[0]
+    assert state.file_key == "test1.jpg"
+    assert state.thumbnail_checksum == "abc123"
+    assert state.action_type == libression.entities.db.DBFileAction.CREATE
+    assert state.mime_type == "image/jpeg"
+    assert set(state.tags) == {"tag1", "tag2"}
 
 
 def test_file_history(db_client, sample_entries):
     """Test file history tracking."""
     # Create initial file
-    [file_id] = db_client.insert_to_files_table([sample_entries[0]])
-    initial_state = db_client.get_file_state("test1.jpg")
-    
-    # Debug output
-    print(f"\nInitial state: {dict(initial_state)}")
-    
+    [initial_state] = db_client.register_files(sample_entries)
+
     # Move file
     moved = libression.entities.db.existing_db_file_entry(
         file_key="moved.jpg",
@@ -55,64 +58,48 @@ def test_file_history(db_client, sample_entries):
         thumbnail_checksum="abc123",
         thumbnail_phash="def456",
         action_type=libression.entities.db.DBFileAction.MOVE,
-        file_entity_uuid=initial_state['file_entity_uuid']
+        file_entity_uuid=initial_state.file_entity_uuid,
+        tags=["tag1", "tag2"],  # Maintain tags
     )
-    db_client.insert_to_files_table([moved])
-    
-    # Debug: verify both records exist
-    with db_client._connect() as conn:
-        all_records = conn.execute(
-            "SELECT * FROM file_actions ORDER BY created_at DESC"
-        ).fetchall()
-        print("\nAll records:")
-        for record in all_records:
-            print(dict(record))
-    
+    db_client.register_files([moved])
+
     # Check history
     history = db_client.get_file_history("moved.jpg")
-    print(f"\nHistory for moved.jpg: {[dict(h) for h in history]}")
-    
     assert len(history) == 2
-    assert history[0]['file_key'] == "moved.jpg"
-    assert history[1]['file_key'] == "test1.jpg"
+    assert history[0].file_key == "moved.jpg"
+    assert history[1].file_key == "test1.jpg"
+    assert set(history[0].tags) == {"tag1", "tag2"}
 
-def test_tag_operations(db_client, sample_entries):
-    """Test tag operations."""
-    # Create files
-    file_ids = db_client.insert_to_files_table(sample_entries)
-    
-    # Create tags
-    tag_ids = db_client.ensure_tags(["tag1", "tag2", "tag3"])
-    assert len(tag_ids) == 3
-    print(f"\nCreated tag IDs: {tag_ids}")
-    
-    # Create tag bitset
-    tag_bits = libression.entities.db.TagBitSet.new()
-    tag_bits.add_tag(tag_ids[0])
-    tag_bits.add_tag(tag_ids[2])
-    
-    # Debug tag bits
-    print(f"\nTag bits blob: {tag_bits.to_blob().hex()}")
-    print("Tag bits set:", [i for i in range(256) if tag_bits.has_tag(i)])
-    
-    # Add tags to files
-    tag_record_ids = db_client.update_file_tags(file_ids, tag_bits.to_blob())
-    
-    # Debug: verify tags were added correctly
-    with db_client._connect() as conn:
-        print("\nFile tags in database:")
-        for row in conn.execute("SELECT file_id, tag_bits FROM file_tags"):
-            print(f"File ID: {row['file_id']}, Raw bits: {row['tag_bits'].hex()}")
-            bits = libression.entities.db.TagBitSet.from_blob(row['tag_bits'])
-            print(f"  Tag bits set: {[i for i in range(256) if bits.has_tag(i)]}")
-    
-    # Query files with tags
-    files = db_client.get_files_with_tags(tag_bits.to_blob())
-    print(f"\nFiles with tags: {[dict(f) for f in files]}")
-    
-    assert len(files) == 1
-    assert files[0]['file_key'] == "test1.jpg"
-    assert libression.entities.db.TagBitSet.from_blob(files[0]['tag_bits']).has_tag(tag_ids[0])
+
+def test_tag_operations(db_client):
+    """Test tag-based file queries."""
+    # Create files with different tags
+    entries = [
+        libression.entities.db.new_db_file_entry(
+            file_key="test1.jpg", tags=["vacation", "beach"]
+        ),
+        libression.entities.db.new_db_file_entry(
+            file_key="test2.jpg", tags=["vacation", "mountain"]
+        ),
+        libression.entities.db.new_db_file_entry(file_key="test3.jpg", tags=["work"]),
+    ]
+    db_client.register_files(entries)
+
+    # Test tag queries
+    vacation_files = db_client.get_file_entries_by_tags(include_tag_names=["vacation"])
+    assert len(vacation_files) == 2
+    assert {f.file_key for f in vacation_files} == {"test1.jpg", "test2.jpg"}
+
+    beach_files = db_client.get_file_entries_by_tags(
+        include_tag_names=["vacation", "beach"]
+    )
+    assert len(beach_files) == 1
+    assert beach_files[0].file_key == "test1.jpg"
+
+    non_work_files = db_client.get_file_entries_by_tags(exclude_tag_names=["work"])
+    assert len(non_work_files) == 2
+    assert {f.file_key for f in non_work_files} == {"test1.jpg", "test2.jpg"}
+
 
 def test_similar_files(db_client, sample_entries):
     """Test finding similar files."""
@@ -121,32 +108,45 @@ def test_similar_files(db_client, sample_entries):
         file_key="similar.jpg",
         thumbnail_key="thumb3.jpg",
         thumbnail_checksum=sample_entries[0].thumbnail_checksum,  # Same checksum
-        thumbnail_phash="different123"  # Different phash
+        thumbnail_phash="different123",  # Different phash
     )
-    
-    db_client.insert_to_files_table(sample_entries + [similar])
-    
+
+    db_client.register_files(sample_entries + [similar])
+
     # Find similar files
     similar_files = db_client.find_similar_files("test1.jpg")
     assert len(similar_files) == 2  # Original + similar
-    assert any(f['file_key'] == "similar.jpg" for f in similar_files)
+    assert any(f.file_key == "similar.jpg" for f in similar_files)
+
 
 def test_error_cases(db_client):
     """Test error handling."""
-    # Test empty insert
-    assert db_client.insert_to_files_table([]) == []
-    
+    # Test empty register
+    assert db_client.register_files([]) == []
+
     # Test invalid action type
     with pytest.raises(ValueError):
         libression.entities.db.existing_db_file_entry(
             file_key="test.jpg",
-            thumbnail_key="thumb.jpg",
-            thumbnail_checksum="abc123",
-            thumbnail_phash="def456",
-            action_type=libression.entities.db.DBFileAction.CREATE,  # Should use create() for CREATE actions
-            file_entity_uuid="123"
+            action_type=libression.entities.db.DBFileAction.CREATE,  # Should use new_db_file_entry for CREATE
+            file_entity_uuid="123",
         )
-    
+
     # Test non-existent file
-    assert db_client.get_file_state("nonexistent.jpg") is None
+    assert db_client.get_file_entries_by_file_keys(["nonexistent.jpg"]) == []
     assert db_client.get_file_history("nonexistent.jpg") == []
+
+    # Test invalid tag queries
+    with pytest.raises(ValueError):
+        db_client.get_file_entries_by_tags()  # No tags provided
+
+    with pytest.raises(ValueError):
+        db_client.get_file_entries_by_tags(
+            include_tag_names=["tag1", "tag1"]  # Duplicate tags
+        )
+
+    with pytest.raises(ValueError):
+        db_client.get_file_entries_by_tags(
+            include_tag_names=["tag1"],
+            exclude_tag_names=["tag1"],  # Overlapping include/exclude
+        )

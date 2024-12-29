@@ -1,7 +1,9 @@
-import datetime
 import dataclasses
+import datetime
 import typing
+
 import libression.entities.media
+
 
 @dataclasses.dataclass
 class FileKeyMapping:
@@ -11,7 +13,7 @@ class FileKeyMapping:
 
 @dataclasses.dataclass
 class FileStream:
-    file_stream: typing.IO[bytes]
+    file_stream: typing.BinaryIO
     file_byte_size: int
     mime_type: libression.entities.media.SupportedMimeType | None = None
 
@@ -29,6 +31,7 @@ class GetUrlsResponse:
 @dataclasses.dataclass
 class ListDirectoryObject:
     """File information from WebDAV"""
+
     filename: str
     absolute_path: str
     size: int  # bytes
@@ -45,24 +48,24 @@ class IOHandler(typing.Protocol):
     best to have fully qualified filepaths
     """
 
-    async def upload(self, file_streams: FileStreams, chunk_byte_size: int) -> None:
-        ...
+    async def upload(self, file_streams: FileStreams, chunk_byte_size: int) -> None: ...
 
-    def get_readonly_urls(self, file_keys: typing.Iterable[str], expires_in_seconds: int) -> GetUrlsResponse:
-        ...
+    def get_readonly_urls(
+        self, file_keys: typing.Sequence[str], expires_in_seconds: int
+    ) -> GetUrlsResponse: ...
 
-    async def delete(self, file_keys: typing.Iterable[str]) -> None:
-        ...
+    async def delete(self, file_keys: typing.Sequence[str]) -> None: ...
 
-    async def list_objects(self, dirpath: str, subfolder_contents: bool = False) -> list[ListDirectoryObject]:
+    async def list_objects(
+        self, dirpath: str, subfolder_contents: bool = False
+    ) -> list[ListDirectoryObject]:
         """List all objects in the "directory"."""
         ...
 
     async def copy(
         self,
-        file_key_mappings: typing.Iterable[FileKeyMapping],
+        file_key_mappings: typing.Sequence[FileKeyMapping],
         delete_source: bool,  # False: copy, True: paste
         chunk_byte_size: int,
         allow_missing: bool = False,
-    ) -> None:
-        ...
+    ) -> None: ...
