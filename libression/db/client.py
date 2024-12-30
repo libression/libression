@@ -310,7 +310,6 @@ class DBClient:
         self,
         file_keys: list[str],
         chunk_size: int = 900,
-        get_tags: bool = True,
     ) -> list[libression.entities.db.DBFileEntry]:
         """
         Get current states of multiple files in chunks to avoid SQLite limits.
@@ -340,42 +339,28 @@ class DBClient:
                     AND action_type != 'DELETE'
                     GROUP BY file_key
                 )
+                , latest_tags AS (
+                    SELECT
+                        ft.file_entity_uuid,
+                        GROUP_CONCAT(ft.tag_id) as tag_ids
+                    FROM file_tags ft
+                    JOIN (
+                        SELECT file_entity_uuid, MAX(tags_created_at) as max_created
+                        FROM file_tags
+                        GROUP BY file_entity_uuid, tag_id
+                    ) lt ON ft.file_entity_uuid = lt.file_entity_uuid
+                        AND ft.tags_created_at = lt.max_created
+                    GROUP BY ft.file_entity_uuid
+                )
+                SELECT f.*, COALESCE(lt.tag_ids, '') as tag_ids
+                FROM file_actions f
+                JOIN latest_states ls
+                    ON f.file_key = ls.file_key
+                    AND f.action_created_at = ls.latest_at
+                LEFT JOIN latest_tags lt
+                    ON lt.file_entity_uuid = f.file_entity_uuid
+                ORDER BY f.action_created_at DESC, f.id DESC
                 """.format(placeholders)
-
-                # Add tag handling if requested
-                if get_tags:
-                    query += """
-                    , latest_tags AS (
-                        SELECT
-                            ft.file_entity_uuid,
-                            GROUP_CONCAT(ft.tag_id) as tag_ids
-                        FROM file_tags ft
-                        JOIN (
-                            SELECT file_entity_uuid, MAX(tags_created_at) as max_created
-                            FROM file_tags
-                            GROUP BY file_entity_uuid, tag_id
-                        ) lt ON ft.file_entity_uuid = lt.file_entity_uuid
-                            AND ft.tags_created_at = lt.max_created
-                        GROUP BY ft.file_entity_uuid
-                    )
-                    SELECT f.*, COALESCE(lt.tag_ids, '') as tag_ids
-                    FROM file_actions f
-                    JOIN latest_states ls
-                        ON f.file_key = ls.file_key
-                        AND f.action_created_at = ls.latest_at
-                    LEFT JOIN latest_tags lt
-                        ON lt.file_entity_uuid = f.file_entity_uuid
-                    """
-                else:
-                    query += """
-                    SELECT f.*, '' as tag_ids
-                    FROM file_actions f
-                    JOIN latest_states ls
-                        ON f.file_key = ls.file_key
-                        AND f.action_created_at = ls.latest_at
-                    """
-
-                query += " ORDER BY f.action_created_at DESC, f.id DESC"
 
                 rows = cursor.execute(query, chunk).fetchall()
                 results.extend(
@@ -386,31 +371,42 @@ class DBClient:
 
     def get_file_entries_by_tags(
         self,
-        include_tag_names: typing.Sequence[str] = tuple(),
-        exclude_tag_names: typing.Sequence[str] = tuple(),
+        include_tag_groups: list[list[str]] = [],
+        exclude_tags: list[str] = [],
     ) -> list[libression.entities.db.DBFileEntry]:
         """
         Find files matching tag criteria:
-        - include_tag_names: files must have ALL these tags
-        - exclude_tag_names: files must have NONE of these tags
-        """
+        - include_tag_groups: files must match ANY group of tags (OR between groups)
+                             within each group, ALL tags must match (AND within group)
+        - exclude_tags: files must not have ANY of these tags (OR between tags)
 
-        if not include_tag_names and not exclude_tag_names:
+        Example:
+            include_tag_groups=[["vacation", "beach"], ["work", "important"]]
+            -> Files that have (vacation AND beach) OR (work AND important)
+
+            exclude_tags=["private", "draft"]
+            -> Files that don't have private OR draft
+        """
+        if not include_tag_groups and not exclude_tags:
             raise ValueError("At least one tag must be provided!")
 
-        if len(include_tag_names) > len(set(include_tag_names)):
-            raise ValueError("Include tags cannot have duplicates!")
+        # Validate input
+        for group in include_tag_groups:
+            if len(group) > len(set(group)):
+                raise ValueError("Tag groups cannot have duplicates!")
 
-        if len(exclude_tag_names) > len(set(exclude_tag_names)):
+        if len(exclude_tags) > len(set(exclude_tags)):
             raise ValueError("Exclude tags cannot have duplicates!")
 
-        if set(include_tag_names).intersection(set(exclude_tag_names)):
+        # Check for overlaps between include and exclude
+        all_include_tags = {tag for group in include_tag_groups for tag in group}
+        if all_include_tags.intersection(exclude_tags):
             raise ValueError("Include and exclude tags cannot overlap!")
 
         with self._connect() as conn:
             cursor = conn.cursor()
 
-            # Get latest file states with their tags
+            # Base query with latest actions and tags
             query = """
             WITH latest_actions AS (
                 -- Get latest non-deleted action for each file
@@ -445,37 +441,44 @@ class DBClient:
             conditions = []
             params = []
 
-            if include_tag_names:
-                # Get tag IDs for include tags
-                placeholders = ",".join("?" * len(include_tag_names))
-                cursor.execute(
-                    f"SELECT id FROM tags WHERE name IN ({placeholders})",
-                    list(include_tag_names),
-                )
-                include_ids = [row["id"] for row in cursor.fetchall()]
+            if include_tag_groups:
+                include_conditions = []
 
-                # Must have ALL these tags
-                conditions.append(f"""
-                    f.file_entity_uuid IN (
-                        SELECT file_entity_uuid
-                        FROM latest_tags lt
-                        WHERE lt.tag_id IN ({",".join("?" * len(include_ids))})
-                        GROUP BY file_entity_uuid
-                        HAVING COUNT(DISTINCT lt.tag_id) = {len(include_ids)}
+                for group in include_tag_groups:
+                    # Get tag IDs for this group
+                    placeholders = ",".join("?" * len(group))
+                    cursor.execute(
+                        f"SELECT id FROM tags WHERE name IN ({placeholders})",
+                        list(group),
                     )
-                """)
-                params.extend(include_ids)
+                    group_ids = [row["id"] for row in cursor.fetchall()]
 
-            if exclude_tag_names:
+                    # Must have ALL tags in this group
+                    include_conditions.append(f"""
+                        f.file_entity_uuid IN (
+                            SELECT file_entity_uuid
+                            FROM latest_tags lt
+                            WHERE lt.tag_id IN ({",".join("?" * len(group_ids))})
+                            GROUP BY file_entity_uuid
+                            HAVING COUNT(DISTINCT lt.tag_id) = {len(group_ids)}
+                        )
+                    """)
+                    params.extend(group_ids)
+
+                # OR between groups
+                if include_conditions:
+                    conditions.append("(" + " OR ".join(include_conditions) + ")")
+
+            if exclude_tags:
                 # Get tag IDs for exclude tags
-                placeholders = ",".join("?" * len(exclude_tag_names))
+                placeholders = ",".join("?" * len(exclude_tags))
                 cursor.execute(
                     f"SELECT id FROM tags WHERE name IN ({placeholders})",
-                    list(exclude_tag_names),
+                    list(exclude_tags),
                 )
                 exclude_ids = [row["id"] for row in cursor.fetchall()]
 
-                # Must have NONE of these tags
+                # Must not have ANY of these tags
                 conditions.append(f"""
                     f.file_entity_uuid NOT IN (
                         SELECT file_entity_uuid
@@ -581,62 +584,6 @@ class DBClient:
                 (row["tags_created_at"], set(row["tag_names"].split(",")))
                 for row in rows
             ]
-
-    def get_file_history_by_id(
-        self, file_id: int
-    ) -> list[libression.entities.db.DBFileEntry]:
-        """Get complete history of a file using its ID."""
-        with self._connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute("BEGIN IMMEDIATE")
-
-            # Get file_entity_uuid first
-            file = cursor.execute(
-                "SELECT file_entity_uuid FROM file_actions WHERE id = ?", (file_id,)
-            ).fetchone()
-
-            if not file:
-                return []
-
-            # Use the same query as get_file_history
-            rows = cursor.execute(
-                """
-                WITH action_times AS (
-                    SELECT
-                        file_entity_uuid,
-                        action_created_at
-                    FROM file_actions
-                    WHERE file_entity_uuid = ?
-                ),
-                tags_at_times AS (
-                    SELECT
-                        at.file_entity_uuid,
-                        at.action_created_at,
-                        ft.tag_id,
-                        t.name as tag_name
-                    FROM action_times at
-                    LEFT JOIN file_tags ft
-                        ON ft.file_entity_uuid = at.file_entity_uuid
-                        AND ft.tags_created_at <= at.action_created_at
-                    LEFT JOIN tags t
-                        ON t.id = ft.tag_id
-                )
-                SELECT
-                    f.*,
-                    GROUP_CONCAT(tat.tag_id) as tag_ids
-                FROM file_actions f
-                LEFT JOIN tags_at_times tat
-                    ON tat.file_entity_uuid = f.file_entity_uuid
-                    AND tat.action_created_at = f.action_created_at
-                WHERE f.file_entity_uuid = ?
-                GROUP BY f.id
-                ORDER BY f.action_created_at DESC, f.id DESC
-                """,
-                (file["file_entity_uuid"], file["file_entity_uuid"]),
-            ).fetchall()
-
-            # Convert rows to entries
-            return [self._file_entry_from_db_row(row, cursor) for row in rows]
 
     def find_similar_files(
         self, file_key: str

@@ -114,38 +114,77 @@ def test_tag_operations(db_client):
     # Create files with different tags
     entries = [
         libression.entities.db.new_db_file_entry(
-            file_key="test1.jpg", tags=["vacation", "beach"]
+            file_key="beach1.jpg", tags=["vacation", "beach", "summer"]
         ),
         libression.entities.db.new_db_file_entry(
-            file_key="test2.jpg", tags=["vacation", "mountain"]
+            file_key="mountain1.jpg", tags=["vacation", "mountain", "winter"]
         ),
-        libression.entities.db.new_db_file_entry(file_key="test3.jpg", tags=["work"]),
+        libression.entities.db.new_db_file_entry(
+            file_key="work1.jpg", tags=["work", "important"]
+        ),
+        libression.entities.db.new_db_file_entry(
+            file_key="private1.jpg", tags=["work", "private"]
+        ),
+        libression.entities.db.new_db_file_entry(
+            file_key="draft1.jpg", tags=["work", "draft", "important"]
+        ),
     ]
     registered = db_client.register_files(entries)
-    db_client.register_file_tags(registered)  # Register initial tags
+    db_client.register_file_tags(registered)
 
-    # Test tag queries
-    vacation_files = db_client.get_file_entries_by_tags(include_tag_names=["vacation"])
-    assert len(vacation_files) == 2
-    assert {f.file_key for f in vacation_files} == {"test1.jpg", "test2.jpg"}
-    # Verify tags are preserved
-    assert set(vacation_files[0].tags) == {"vacation", "beach"}
-    assert set(vacation_files[1].tags) == {"vacation", "mountain"}
-
-    # Test multiple tag query
+    # Test single group include
     beach_vacation = db_client.get_file_entries_by_tags(
-        include_tag_names=["vacation", "beach"]
+        include_tag_groups=[["vacation", "beach"]]
     )
     assert len(beach_vacation) == 1
-    assert beach_vacation[0].file_key == "test1.jpg"
-    assert set(beach_vacation[0].tags) == {"vacation", "beach"}
+    assert beach_vacation[0].file_key == "beach1.jpg"
+    assert set(beach_vacation[0].tags) == {"vacation", "beach", "summer"}
 
-    # Test exclusion
-    non_work = db_client.get_file_entries_by_tags(exclude_tag_names=["work"])
-    assert len(non_work) == 2
-    assert {f.file_key for f in non_work} == {"test1.jpg", "test2.jpg"}
+    # Test multiple groups (OR)
+    vacation_or_important = db_client.get_file_entries_by_tags(
+        include_tag_groups=[["vacation"], ["important"]]
+    )
+    assert len(vacation_or_important) == 4  # beach1, mountain1, work1, draft1
+    assert {f.file_key for f in vacation_or_important} == {
+        "beach1.jpg",
+        "mountain1.jpg",
+        "work1.jpg",
+        "draft1.jpg",
+    }
 
-    # Test file history (should show actions without tags)
+    # Test complex groups
+    summer_beach_or_winter_mountain = db_client.get_file_entries_by_tags(
+        include_tag_groups=[["summer", "beach"], ["winter", "mountain"]]
+    )
+    assert len(summer_beach_or_winter_mountain) == 2
+    assert {f.file_key for f in summer_beach_or_winter_mountain} == {
+        "beach1.jpg",
+        "mountain1.jpg",
+    }
+
+    # Test exclude
+    non_private = db_client.get_file_entries_by_tags(
+        include_tag_groups=[["work"]], exclude_tags=["private"]
+    )
+    assert len(non_private) == 2
+    assert {f.file_key for f in non_private} == {"work1.jpg", "draft1.jpg"}
+
+    # Test multiple excludes
+    clean_work = db_client.get_file_entries_by_tags(
+        include_tag_groups=[["work"]], exclude_tags=["private", "draft"]
+    )
+    assert len(clean_work) == 1
+    assert clean_work[0].file_key == "work1.jpg"
+
+    # Test complex query
+    vacation_spots_no_winter = db_client.get_file_entries_by_tags(
+        include_tag_groups=[["vacation", "beach"], ["vacation", "mountain"]],
+        exclude_tags=["winter"],
+    )
+    assert len(vacation_spots_no_winter) == 1
+    assert vacation_spots_no_winter[0].file_key == "beach1.jpg"
+
+    # Test file history
     original_uuid = registered[0].file_entity_uuid
     moved = libression.entities.db.existing_db_file_entry(
         file_key="moved.jpg",
@@ -162,13 +201,13 @@ def test_tag_operations(db_client):
     assert history[0].file_key == "moved.jpg"
     assert history[0].action_type == libression.entities.db.DBFileAction.MOVE
     assert history[1].file_entity_uuid == original_uuid
-    assert history[1].file_key == "test1.jpg"
+    assert history[1].file_key == "beach1.jpg"
     assert history[1].action_type == libression.entities.db.DBFileAction.CREATE
 
     # Test tag history
     tag_history = db_client.get_tag_history("moved.jpg")
     assert len(tag_history) == 1  # Initial tag registration
-    assert tag_history[0][1] == {"vacation", "beach"}
+    assert tag_history[0][1] == {"vacation", "beach", "summer"}
 
     # Test tag updates
     updated = libression.entities.db.existing_db_file_entry(
@@ -184,7 +223,7 @@ def test_tag_operations(db_client):
     tag_history = db_client.get_tag_history("moved.jpg")
     assert len(tag_history) == 2
     assert tag_history[0][1] == {"vacation", "beach", "sunset"}  # Latest tags
-    assert tag_history[1][1] == {"vacation", "beach"}  # Original tags
+    assert tag_history[1][1] == {"vacation", "beach", "summer"}  # Original tags
 
 
 def test_similar_files(db_client, sample_entries):
@@ -228,11 +267,11 @@ def test_error_cases(db_client):
 
     with pytest.raises(ValueError):
         db_client.get_file_entries_by_tags(
-            include_tag_names=["tag1", "tag1"]  # Duplicate tags
+            include_tag_groups=[["tag1", "tag1"]]  # Duplicate tags
         )
 
     with pytest.raises(ValueError):
         db_client.get_file_entries_by_tags(
-            include_tag_names=["tag1"],
-            exclude_tag_names=["tag1"],  # Overlapping include/exclude
+            include_tag_groups=[["tag1"]],
+            exclude_tags=["tag1"],  # Overlapping include/exclude
         )
