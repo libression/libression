@@ -36,7 +36,9 @@ def upgrade():
             "thumbnail_phash", sa.String(), nullable=True
         ),  # phash of file (4X4 rotational greyscale of frames)
         sa.Column(
-            "created_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP")
+            "action_created_at",
+            sa.DateTime(),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
         ),  # auto-generated
     )
 
@@ -52,26 +54,33 @@ def upgrade():
         "file_tags",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("file_entity_uuid", sa.String(36), nullable=False),
-        sa.Column("tag_bits", sa.LargeBinary(), nullable=False),
-        sa.Column(
-            "created_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP")
-        ),
+        sa.Column("tag_id", sa.Integer(), nullable=False),
+        # Force timestamp declaration ("collections" of latest tags must have same timestamp)
+        sa.Column("tags_created_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(
             ["file_entity_uuid"], ["file_actions.file_entity_uuid"]
         ),
+        sa.ForeignKeyConstraint(["tag_id"], ["tags.id"]),
     )
 
-    # Indexes
+    # File Actions indexes
     op.create_index(
-        "idx_file_actions_key_time", "file_actions", ["file_key", "created_at"]
-    )
-    op.create_index(
-        "idx_file_tags_entity_time", "file_tags", ["file_entity_uuid", "created_at"]
+        "idx_file_actions_key_time", "file_actions", ["file_key", "action_created_at"]
     )
     op.create_index("idx_file_entity_uuid", "file_actions", ["file_entity_uuid"])
     op.create_index("idx_files_phash", "file_actions", ["thumbnail_phash"])
     op.create_index(
         "idx_files_checksums", "file_actions", ["thumbnail_checksum", "thumbnail_phash"]
+    )
+
+    # Tags index
+    op.create_index("idx_tags_name", "tags", ["name"])
+
+    # File Tags index (compound covers all cases)
+    op.create_index(
+        "idx_file_tags_compound",
+        "file_tags",
+        ["file_entity_uuid", "tag_id", "tags_created_at"],
     )
 
 

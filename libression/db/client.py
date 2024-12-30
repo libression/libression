@@ -1,3 +1,4 @@
+import dataclasses
 import datetime
 import pathlib
 import sqlite3
@@ -7,6 +8,28 @@ import alembic.command
 from alembic.config import Config
 
 import libression.entities.db
+
+
+@dataclasses.dataclass
+class TagMapping:
+    """
+    Bidirectional mapping for tag names and IDs
+    Always fetch from db (even after inserts)
+    Makes it more human readable and easier to use
+    """
+
+    name_to_id: dict[str, int]
+    id_to_name: dict[int, str]
+
+    @classmethod
+    def from_rows(cls, rows: typing.Sequence[sqlite3.Row]) -> "TagMapping":
+        """Create mapping from database rows."""
+        name_to_id = {}
+        id_to_name = {}
+        for row in rows:
+            name_to_id[row["name"]] = row["id"]
+            id_to_name[row["id"]] = row["name"]
+        return cls(name_to_id, id_to_name)
 
 
 class DBClient:
@@ -76,53 +99,29 @@ class DBClient:
 
     def _sync_tags_by_tag_names(
         self,
-        tags: list[str],
+        tag_names: list[str],
         cursor: sqlite3.Cursor,
     ) -> libression.entities.db.TagMapping:
         """
-        requires a connected cursor
-        syncs tags from the database (registers new tags)
+        Ensure tags exist in the database
+        lazy syncs (only calls db when missing tags)
         """
 
-        tag_mapping = self._cache_tag_mapping(
-            cursor, force_update=False
-        )  # ensures loaded and not None
+        offline_tag_mapping = self._cache_tag_mapping(cursor, force_update=False)
 
-        tags_with_missing_ids = [
-            tag for tag in tags if tag not in tag_mapping.name_to_id.keys()
-        ]
+        missing_tags = set(tag_names) - set(offline_tag_mapping.name_to_id.keys())
 
-        if tags_with_missing_ids:
-            # Insert missing tags
-            for tag in tags_with_missing_ids:
-                cursor.execute("INSERT INTO tags (name) VALUES (?)", (tag,))
+        if not missing_tags:
+            return offline_tag_mapping  # no need to call db
 
-            # Update the cache (new ids can't be known ahead of time ... so second db call)
-            tag_mapping = self._cache_tag_mapping(cursor, force_update=True)
+        cursor.executemany(
+            # If clashes in name, safely ignore (as the tag is already registered)
+            # could be that offline_tag_mapping is out of sync, but we don't care
+            "INSERT OR IGNORE INTO tags (name) VALUES (?)",
+            [(name,) for name in missing_tags],
+        )
 
-        return tag_mapping  # reference only...can do copy if needed (safer)
-
-    def _tags_to_bitset(
-        self,
-        tags: list[str],
-        cursor: sqlite3.Cursor,
-    ) -> libression.entities.db.TagBitSet | None:
-        """
-        requires a connected cursor
-        only allow Nones in tags in db (not in python entities)
-        """
-        if not tags:
-            return None
-
-        tag_map = self._sync_tags_by_tag_names(tags, cursor)
-
-        tag_ids = [x for x in tag_map.get_ids(tags) if x is not None]
-
-        if any([tag_id is None for tag_id in tag_ids]):
-            raise ValueError("tag(s) not registered in db! should not be here...")
-
-        # Create and populate bitset
-        return libression.entities.db.TagBitSet.from_tag_ids(tag_ids)
+        return self._cache_tag_mapping(cursor, force_update=True)
 
     def _insert_file_tags(
         self,
@@ -133,6 +132,9 @@ class DBClient:
         requires a connected cursor
         """
 
+        if not entries:
+            return None  # nothing to do
+
         invalid_entries = [entry for entry in entries if not entry.file_entity_uuid]
 
         if invalid_entries:
@@ -140,16 +142,21 @@ class DBClient:
 
         # Filter entries with tags and prepare parameters
         tag_params = []
+
+        tags_created_at = datetime.datetime.now(
+            datetime.UTC
+        )  # Inserts grouped by timestamp and file_entity_uuid
+
         for entry in entries:
-            blob: bytes | None = None
-            bitset = self._tags_to_bitset(list(entry.tags), cursor)
-            if bitset is not None:
-                blob = bitset.to_blob()
-            tag_params.append((entry.file_entity_uuid, blob))
+            tag_mapping = self._sync_tags_by_tag_names(list(entry.tags), cursor)
+
+            for tag_name in entry.tags:
+                tag_id = tag_mapping.name_to_id[tag_name]
+                tag_params.append((entry.file_entity_uuid, tag_id, tags_created_at))
 
         if tag_params:  # Only execute if we have tags to insert
             cursor.executemany(
-                "INSERT INTO file_tags (file_entity_uuid, tag_bits) VALUES (?, ?)",
+                "INSERT INTO file_tags (file_entity_uuid, tag_id, tags_created_at) VALUES (?, ?, ?)",
                 tag_params,
             )
 
@@ -157,6 +164,10 @@ class DBClient:
         self,
         entries: list[libression.entities.db.DBFileEntry],
     ) -> None:
+        """Register tags for files."""
+        if not entries:
+            return
+
         with self._connect() as conn:
             cursor = conn.cursor()
             cursor.execute("BEGIN IMMEDIATE")
@@ -171,7 +182,7 @@ class DBClient:
         entries: list[libression.entities.db.DBFileEntry],
         cursor: sqlite3.Cursor,
     ) -> list[tuple[int, datetime.datetime]]:
-        """Insert entries into file_actions table and return (id, created_at) pairs."""
+        """Insert entries into file_actions table and return (id, action_created_at) pairs."""
         return [
             cursor.execute(
                 """
@@ -184,7 +195,7 @@ class DBClient:
                     thumbnail_phash,
                     mime_type
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                RETURNING id, created_at
+                RETURNING id, action_created_at
                 """,
                 (
                     entry.file_entity_uuid,
@@ -204,7 +215,7 @@ class DBClient:
         entries: list[libression.entities.db.DBFileEntry],
     ) -> list[libression.entities.db.DBFileEntry]:
         """
-        Insert entries into file_actions and file_tags tables.
+        Insert entries into file_actions tables (NOT file_tags)
         Returns the fully populated objects (with ids, timestamps, etc.).
         """
         if not entries:
@@ -219,93 +230,87 @@ class DBClient:
             registered_entries = []
             for i, entry in enumerate(entries):
                 entry_dict = entry._asdict()
-                entry_dict["table_id"] = created_at_ids[i][0]  # Update instead of add
-                entry_dict["created_at"] = created_at_ids[i][1]  # Update instead of add
+                entry_dict["action_created_at"] = created_at_ids[i][
+                    1
+                ]  # Update instead of add
                 registered_entries.append(
-                    libression.entities.db.DBFileEntry(**entry_dict)
+                    libression.entities.db.DBFileEntry.from_dict(entry_dict)
                 )
 
-            self._insert_file_tags(registered_entries, cursor)
             return registered_entries
 
     ############################################################################################
     # query methods
     ############################################################################################
 
-    def _sync_tags_by_tag_ids(
+    def _file_entry_from_db_row(
         self,
-        tag_ids: list[int],
+        row: sqlite3.Row,
         cursor: sqlite3.Cursor,
-    ) -> libression.entities.db.TagMapping:
+    ) -> libression.entities.db.DBFileEntry:
         """
-        requires a connected cursor
-        syncs tags from the database (registers new tags)
+        Parses a row from the file_actions table into a DBFileEntry object.
+
+        Checks mandatory fields:
+        - file_entity_uuid
+        - file_key
+        - action_type (to DBFileAction enum)
+        - action_created_at
+
+        Fields that are parsed unchecked:
+        - mime_type
+        - thumbnail_key
+        - thumbnail_checksum
+        - thumbnail_phash
+
+        Tags are parsed from tag_ids (str(list[int])) to tag_names (list[str])
+        Requires connected cursor (for lazy cache of tag_mapping)
         """
+        row_dict = dict(row)
 
-        tag_mapping = self._cache_tag_mapping(
-            cursor, force_update=False
-        )  # ensures loaded and not None
-
-        tag_ids_with_missing_names = [
-            tag_id for tag_id in tag_ids if tag_id not in tag_mapping.id_to_name.keys()
+        mandatory_fields = [
+            "file_entity_uuid",
+            "file_key",
+            "action_type",
+            "action_created_at",
         ]
 
-        if tag_ids_with_missing_names:
-            tag_mapping = self._cache_tag_mapping(cursor, force_update=True)
+        if any([x not in row_dict for x in mandatory_fields]):
+            raise ValueError("Missing required fields in row!")
 
-        if any(tag_id not in tag_mapping.id_to_name.keys() for tag_id in tag_ids):
-            raise ValueError("tag id(s) not registered in db! should not be here...")
+        row_dict["action_type"] = libression.entities.db.DBFileAction(
+            row_dict["action_type"]
+        )
 
-        return tag_mapping  # reference only...can do copy if needed (safer)
+        # Handle tags
+        if "tag_ids" in row_dict:
+            tag_ids = row_dict.pop("tag_ids")
 
-    def _bitset_to_tags(
-        self,
-        bitset: libression.entities.db.TagBitSet,
-        cursor: sqlite3.Cursor,
-    ) -> list[str]:
-        """Convert TagBitSet back to list of tag names."""
-        tag_ids = bitset.get_tag_ids()  # Get actual set bits, no range limitation
-        tag_map = self._sync_tags_by_tag_ids(tag_ids, cursor)
+            if not tag_ids:  # empty string or None in tag_ids (no tags...)
+                return libression.entities.db.DBFileEntry.from_dict(
+                    row_dict
+                )  # early bail
 
-        return [x for x in tag_map.get_names(tag_ids) if x is not None]
+            itemised_tag_ids = tag_ids.split(",")
 
-    def _files_in_db_to_entries(
-        self,
-        rows: list[sqlite3.Row],
-        cursor: sqlite3.Cursor,
-    ) -> list[libression.entities.db.DBFileEntry]:
-        """Convert SQLite rows to DBFileEntry objects."""
-        entries = []
-        for row in rows:
-            # Convert row to dict and handle special fields
-            entry_dict = dict(row)
-            entry_dict["table_id"] = entry_dict.pop("id")
-            entry_dict["action_type"] = libression.entities.db.DBFileAction(
-                entry_dict["action_type"]
-            )
+            tag_mapping = self._cache_tag_mapping(cursor, force_update=False)
 
-            # Convert tag_bits blob to TagBitSet if present
-            if "tag_bits" in entry_dict:
-                tag_bits = entry_dict.pop(
-                    "tag_bits"
-                )  # Remove from dict to avoid constructor error
-                if tag_bits:
-                    tags = self._bitset_to_tags(
-                        libression.entities.db.TagBitSet.from_blob(tag_bits),
-                        cursor,
-                    )
-                else:
-                    tags = []
-                entry_dict["tags"] = tags
+            if set(int(tag_id) for tag_id in itemised_tag_ids) - set(
+                tag_mapping.id_to_name.keys()
+            ):
+                tag_mapping = self._cache_tag_mapping(cursor, force_update=True)
 
-            entries.append(libression.entities.db.DBFileEntry(**entry_dict))
+            row_dict["tags"] = [
+                tag_mapping.id_to_name[int(tag_id)] for tag_id in itemised_tag_ids
+            ]
 
-        return entries
+        return libression.entities.db.DBFileEntry.from_dict(row_dict)
 
     def get_file_entries_by_file_keys(
         self,
         file_keys: list[str],
         chunk_size: int = 900,
+        get_tags: bool = True,
     ) -> list[libression.entities.db.DBFileEntry]:
         """
         Get current states of multiple files in chunks to avoid SQLite limits.
@@ -324,31 +329,60 @@ class DBClient:
                 chunk = file_keys[i : i + chunk_size]
                 placeholders = ",".join(["?"] * len(chunk))
 
-                chunk_results = cursor.execute(
-                    f"""
-                    WITH latest_states AS (
-                        SELECT
-                            file_key,
-                            MAX(created_at) as latest_at
-                        FROM file_actions
-                        WHERE file_key IN ({placeholders})
-                        GROUP BY file_key
-                    )
+                # Base query for latest non-deleted state
+                query = """
+                WITH latest_states AS (
                     SELECT
-                        f.*,
-                        ft.tag_bits
+                        file_key,
+                        MAX(action_created_at) as latest_at
+                    FROM file_actions
+                    WHERE file_key IN ({})
+                    AND action_type != 'DELETE'
+                    GROUP BY file_key
+                )
+                """.format(placeholders)
+
+                # Add tag handling if requested
+                if get_tags:
+                    query += """
+                    , latest_tags AS (
+                        SELECT
+                            ft.file_entity_uuid,
+                            GROUP_CONCAT(ft.tag_id) as tag_ids
+                        FROM file_tags ft
+                        JOIN (
+                            SELECT file_entity_uuid, MAX(tags_created_at) as max_created
+                            FROM file_tags
+                            GROUP BY file_entity_uuid, tag_id
+                        ) lt ON ft.file_entity_uuid = lt.file_entity_uuid
+                            AND ft.tags_created_at = lt.max_created
+                        GROUP BY ft.file_entity_uuid
+                    )
+                    SELECT f.*, COALESCE(lt.tag_ids, '') as tag_ids
                     FROM file_actions f
-                    JOIN latest_states ls ON f.file_key = ls.file_key
-                        AND f.created_at = ls.latest_at
-                    LEFT JOIN file_tags ft ON ft.file_entity_uuid = f.file_entity_uuid
-                    ORDER BY f.created_at DESC, f.id DESC
-                """,
-                    chunk,
-                ).fetchall()
+                    JOIN latest_states ls
+                        ON f.file_key = ls.file_key
+                        AND f.action_created_at = ls.latest_at
+                    LEFT JOIN latest_tags lt
+                        ON lt.file_entity_uuid = f.file_entity_uuid
+                    """
+                else:
+                    query += """
+                    SELECT f.*, '' as tag_ids
+                    FROM file_actions f
+                    JOIN latest_states ls
+                        ON f.file_key = ls.file_key
+                        AND f.action_created_at = ls.latest_at
+                    """
 
-                results.extend(chunk_results)
+                query += " ORDER BY f.action_created_at DESC, f.id DESC"
 
-            return self._files_in_db_to_entries(results, cursor)
+                rows = cursor.execute(query, chunk).fetchall()
+                results.extend(
+                    [self._file_entry_from_db_row(row, cursor) for row in rows]
+                )
+
+        return results
 
     def get_file_entries_by_tags(
         self,
@@ -375,58 +409,94 @@ class DBClient:
 
         with self._connect() as conn:
             cursor = conn.cursor()
-            cursor.execute("BEGIN IMMEDIATE")
 
+            # Get latest file states with their tags
             query = """
-                WITH latest_states AS (
-                    SELECT
-                        file_key,
-                        file_entity_uuid,
-                        action_type,
-                        MAX(created_at) as latest_at
-                    FROM file_actions
-                    GROUP BY file_key
-                )
+            WITH latest_actions AS (
+                -- Get latest non-deleted action for each file
                 SELECT
-                    f.*,
-                    ft.tag_bits
-                FROM file_actions f
-                JOIN latest_states ls ON f.file_key = ls.file_key
-                    AND f.created_at = ls.latest_at
-                JOIN file_tags ft ON ft.file_entity_uuid = f.file_entity_uuid
-                WHERE ls.action_type != 'DELETE'
+                    file_entity_uuid,
+                    file_key,
+                    MAX(action_created_at) as latest_action
+                FROM file_actions
+                WHERE action_type != 'DELETE'
+                GROUP BY file_entity_uuid
+            ),
+            latest_tags AS (
+                -- Get latest tags for each file
+                SELECT
+                    file_entity_uuid,
+                    tag_id,
+                    MAX(tags_created_at) as max_created
+                FROM file_tags
+                GROUP BY file_entity_uuid, tag_id
+            )
+            SELECT
+                f.*,
+                GROUP_CONCAT(lt.tag_id) as tag_ids
+            FROM file_actions f
+            JOIN latest_actions la
+                ON f.file_entity_uuid = la.file_entity_uuid
+                AND f.action_created_at = la.latest_action
+            LEFT JOIN latest_tags lt
+                ON lt.file_entity_uuid = f.file_entity_uuid
             """
 
+            conditions = []
             params = []
+
             if include_tag_names:
-                mapping = self._sync_tags_by_tag_names(list(include_tag_names), cursor)
-                tag_ids = [
-                    x for x in mapping.get_ids(include_tag_names) if x is not None
-                ]
-                include_bits = libression.entities.db.TagBitSet.from_tag_ids(tag_ids)
-                query += (
-                    " AND (ft.tag_bits & ?) = ?"  # All required tags must be present
+                # Get tag IDs for include tags
+                placeholders = ",".join("?" * len(include_tag_names))
+                cursor.execute(
+                    f"SELECT id FROM tags WHERE name IN ({placeholders})",
+                    list(include_tag_names),
                 )
-                params.extend([include_bits.to_blob(), include_bits.to_blob()])
+                include_ids = [row["id"] for row in cursor.fetchall()]
+
+                # Must have ALL these tags
+                conditions.append(f"""
+                    f.file_entity_uuid IN (
+                        SELECT file_entity_uuid
+                        FROM latest_tags lt
+                        WHERE lt.tag_id IN ({",".join("?" * len(include_ids))})
+                        GROUP BY file_entity_uuid
+                        HAVING COUNT(DISTINCT lt.tag_id) = {len(include_ids)}
+                    )
+                """)
+                params.extend(include_ids)
 
             if exclude_tag_names:
-                mapping = self._sync_tags_by_tag_names(list(exclude_tag_names), cursor)
-                tag_ids = [
-                    x for x in mapping.get_ids(exclude_tag_names) if x is not None
-                ]
-                exclude_bits = libression.entities.db.TagBitSet.from_tag_ids(tag_ids)
-                query += " AND (ft.tag_bits & ?) = 0"  # No excluded tags can be present
-                params.append(exclude_bits.to_blob())
+                # Get tag IDs for exclude tags
+                placeholders = ",".join("?" * len(exclude_tag_names))
+                cursor.execute(
+                    f"SELECT id FROM tags WHERE name IN ({placeholders})",
+                    list(exclude_tag_names),
+                )
+                exclude_ids = [row["id"] for row in cursor.fetchall()]
 
-            query += " ORDER BY f.created_at DESC, f.id DESC"
+                # Must have NONE of these tags
+                conditions.append(f"""
+                    f.file_entity_uuid NOT IN (
+                        SELECT file_entity_uuid
+                        FROM latest_tags lt
+                        WHERE lt.tag_id IN ({",".join("?" * len(exclude_ids))})
+                    )
+                """)
+                params.extend(exclude_ids)
+
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+
+            query += " GROUP BY f.id"  # Add GROUP BY for tag_ids concatenation
 
             rows = cursor.execute(query, params).fetchall()
-            return self._files_in_db_to_entries(rows, cursor)
+            return [self._file_entry_from_db_row(row, cursor) for row in rows]
 
     def get_file_history(
         self, file_key: str
     ) -> list[libression.entities.db.DBFileEntry]:
-        """Get complete history of a file."""
+        """Get history of file actions (CREATE/UPDATE/MOVE/DELETE)."""
         with self._connect() as conn:
             cursor = conn.cursor()
             cursor.execute("BEGIN IMMEDIATE")
@@ -437,31 +507,80 @@ class DBClient:
                 SELECT file_entity_uuid
                 FROM file_actions
                 WHERE file_key = ?
-                ORDER BY created_at DESC, id DESC  -- Order by both timestamp and id
+                ORDER BY action_created_at DESC, id DESC
                 LIMIT 1
-            """,
+                """,
                 (file_key,),
             ).fetchone()
 
             if not latest:
                 return []
 
-            # Then get all records for this entity
+            # Get all actions for this file entity
             rows = cursor.execute(
                 """
                 SELECT
                     f.*,
-                    ft.tag_bits,
-                    ft.created_at as tags_updated_at
+                    (
+                        SELECT GROUP_CONCAT(tag_id)
+                        FROM file_tags
+                        WHERE file_entity_uuid = f.file_entity_uuid
+                        AND tags_created_at <= f.action_created_at
+                    ) as tag_ids
                 FROM file_actions f
-                LEFT JOIN file_tags ft ON ft.file_entity_uuid = f.file_entity_uuid
                 WHERE f.file_entity_uuid = ?
-                ORDER BY f.created_at DESC, f.id DESC  -- Order by both timestamp and id
-            """,
+                ORDER BY f.action_created_at DESC, f.id DESC
+                """,
                 (latest["file_entity_uuid"],),
             ).fetchall()
 
-            return self._files_in_db_to_entries(rows, cursor)
+            return [self._file_entry_from_db_row(row, cursor) for row in rows]
+
+    def get_tag_history(
+        self, file_key: str
+    ) -> list[tuple[datetime.datetime, set[str]]]:
+        """Get history of tag changes for a file."""
+        with self._connect() as conn:
+            cursor = conn.cursor()
+
+            # First get the entity_uuid
+            latest = cursor.execute(
+                """
+                SELECT file_entity_uuid
+                FROM file_actions
+                WHERE file_key = ?
+                ORDER BY action_created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (file_key,),
+            ).fetchone()
+
+            if not latest:
+                return []
+
+            # Get distinct tag states
+            rows = cursor.execute(
+                """
+                WITH tag_states AS (
+                    SELECT DISTINCT
+                        ft.tags_created_at,
+                        GROUP_CONCAT(t.name) as tag_names
+                    FROM file_tags ft
+                    JOIN tags t ON t.id = ft.tag_id
+                    WHERE ft.file_entity_uuid = ?
+                    GROUP BY ft.tags_created_at
+                )
+                SELECT *
+                FROM tag_states
+                ORDER BY tags_created_at DESC
+                """,
+                (latest["file_entity_uuid"],),
+            ).fetchall()
+
+            return [
+                (row["tags_created_at"], set(row["tag_names"].split(",")))
+                for row in rows
+            ]
 
     def get_file_history_by_id(
         self, file_id: int
@@ -479,22 +598,45 @@ class DBClient:
             if not file:
                 return []
 
-            # Then get all records for this entity
+            # Use the same query as get_file_history
             rows = cursor.execute(
                 """
+                WITH action_times AS (
+                    SELECT
+                        file_entity_uuid,
+                        action_created_at
+                    FROM file_actions
+                    WHERE file_entity_uuid = ?
+                ),
+                tags_at_times AS (
+                    SELECT
+                        at.file_entity_uuid,
+                        at.action_created_at,
+                        ft.tag_id,
+                        t.name as tag_name
+                    FROM action_times at
+                    LEFT JOIN file_tags ft
+                        ON ft.file_entity_uuid = at.file_entity_uuid
+                        AND ft.tags_created_at <= at.action_created_at
+                    LEFT JOIN tags t
+                        ON t.id = ft.tag_id
+                )
                 SELECT
                     f.*,
-                    ft.tag_bits,
-                    ft.created_at as tags_updated_at
+                    GROUP_CONCAT(tat.tag_id) as tag_ids
                 FROM file_actions f
-                LEFT JOIN file_tags ft ON ft.file_entity_uuid = f.file_entity_uuid
+                LEFT JOIN tags_at_times tat
+                    ON tat.file_entity_uuid = f.file_entity_uuid
+                    AND tat.action_created_at = f.action_created_at
                 WHERE f.file_entity_uuid = ?
-                ORDER BY f.created_at DESC
-            """,
-                (file["file_entity_uuid"],),
+                GROUP BY f.id
+                ORDER BY f.action_created_at DESC, f.id DESC
+                """,
+                (file["file_entity_uuid"], file["file_entity_uuid"]),
             ).fetchall()
 
-            return self._files_in_db_to_entries(rows, cursor)
+            # Convert rows to entries
+            return [self._file_entry_from_db_row(row, cursor) for row in rows]
 
     def find_similar_files(
         self, file_key: str
@@ -510,7 +652,7 @@ class DBClient:
                     SELECT thumbnail_checksum, thumbnail_phash
                     FROM file_actions
                     WHERE file_key = ?
-                    ORDER BY created_at DESC
+                    ORDER BY action_created_at DESC
                     LIMIT 1
                 ),
                 latest_states AS (
@@ -519,14 +661,14 @@ class DBClient:
                         action_type,
                         thumbnail_checksum,
                         thumbnail_phash,
-                        MAX(created_at) as latest_at
+                        MAX(action_created_at) as latest_at
                     FROM file_actions
                     GROUP BY file_key
                 )
                 SELECT f.*
                 FROM file_actions f
                 JOIN latest_states ls ON f.file_key = ls.file_key
-                    AND f.created_at = ls.latest_at
+                    AND f.action_created_at = ls.latest_at
                 CROSS JOIN target t
                 WHERE ls.action_type != 'DELETE'
                 AND (
@@ -540,9 +682,9 @@ class DBClient:
                         WHEN ls.thumbnail_checksum = t.thumbnail_checksum THEN 2
                         ELSE 3
                     END,
-                    f.created_at DESC
+                    f.action_created_at DESC
             """,
                 (file_key,),
             ).fetchall()
 
-            return self._files_in_db_to_entries(rows, cursor)
+            return [self._file_entry_from_db_row(row, cursor) for row in rows]
