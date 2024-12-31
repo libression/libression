@@ -31,6 +31,7 @@ def upgrade():
         sa.Column(
             "thumbnail_key", sa.String(), nullable=True
         ),  # path to thumbnail (webdav/s3)
+        sa.Column("thumbnail_mime_type", sa.String(), nullable=True),
         sa.Column("thumbnail_checksum", sa.String(64), nullable=True),  # SHA256
         sa.Column(
             "thumbnail_phash", sa.String(), nullable=True

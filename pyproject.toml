@@ -23,6 +23,7 @@ av = "^14.0.1"
 beautifulsoup4 = "^4.12.3"
 httpx = "^0.28.1"
 alembic = "^1.14.0"
+fs = "^2.4.16"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"
@@ -30,6 +31,7 @@ mypy = "^1.1.1"
 bandit = "^1.7.5"
 ruff = "^0.8.4"
 pre-commit = "^4.0.1"
+pytest-asyncio = "^0.25.0"
 
 [build-system]
 requires = ["poetry-core"]

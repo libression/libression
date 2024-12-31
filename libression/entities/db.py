@@ -36,10 +36,10 @@ class DBFileAction(enum.Enum):
     CREATE = "CREATE"  # should always be first action
     MOVE = "MOVE"
     DELETE = "DELETE"
-    UPDATE = (
-        "UPDATE"  # changes (e.g. rotation or photoshop, can be libression/external)
-    )
-    # UPDATE also covers tag changes (doesn't go into file_action, just within function)
+    # UPDATE includes:
+    # - file changes (e.g. rotation or photoshop, can be libression/external)
+    # - tag changes (doesn't go into file_action, just within function)
+    UPDATE = "UPDATE"
 
 
 class DBFileEntry(typing.NamedTuple):
@@ -55,6 +55,7 @@ class DBFileEntry(typing.NamedTuple):
     # Optional fields
     mime_type: str | None = None
     thumbnail_key: str | None = None
+    thumbnail_mime_type: str | None = None
     thumbnail_checksum: str | None = None
     thumbnail_phash: str | None = None
     tags: typing.Sequence[str] = tuple()  # converts to tag_bits in db
@@ -73,6 +74,7 @@ class DBFileEntry(typing.NamedTuple):
 def new_db_file_entry(
     file_key: str,
     thumbnail_key: str | None = None,
+    thumbnail_mime_type: str | None = None,
     thumbnail_checksum: str | None = None,
     thumbnail_phash: str | None = None,
     mime_type: str | None = None,
@@ -84,6 +86,7 @@ def new_db_file_entry(
     return DBFileEntry(
         file_key=file_key,
         thumbnail_key=thumbnail_key,
+        thumbnail_mime_type=thumbnail_mime_type,
         thumbnail_checksum=thumbnail_checksum,
         thumbnail_phash=thumbnail_phash,
         action_type=DBFileAction.CREATE,
@@ -100,6 +103,7 @@ def existing_db_file_entry(
     file_entity_uuid: str,
     action_type: DBFileAction,
     thumbnail_key: str | None = None,
+    thumbnail_mime_type: str | None = None,
     thumbnail_checksum: str | None = None,
     thumbnail_phash: str | None = None,
     mime_type: str | None = None,
@@ -112,6 +116,7 @@ def existing_db_file_entry(
     return DBFileEntry(
         file_key=file_key,
         thumbnail_key=thumbnail_key,
+        thumbnail_mime_type=thumbnail_mime_type,
         thumbnail_checksum=thumbnail_checksum,
         thumbnail_phash=thumbnail_phash,
         action_type=action_type,

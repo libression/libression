@@ -7,43 +7,41 @@ from .image import generate
 from .phash import phash_from_thumbnail
 
 
-class ThumbnailComponents(typing.NamedTuple):
+class ThumbnailInfo(typing.NamedTuple):
     thumbnail: bytes | None
     phash: str | None
     checksum: str | None
 
 
-def generate_thumbnail_components(
-    file_streams: libression.entities.io.FileStreams,
+def generate_thumbnail_info(
+    original_file_stream: libression.entities.io.FileStream,
+    thumbnail_mime_type: libression.entities.media.SupportedMimeType,
     width_in_pixels: int,
-) -> dict[str, ThumbnailComponents]:
-    results = {}
+) -> ThumbnailInfo:
+    # Save initial position
+    initial_pos = original_file_stream.file_stream.tell()
 
-    for file_key, file_stream in file_streams.file_streams.items():
-        # Save initial position
-        initial_pos = file_stream.file_stream.tell()
-        mime_type = file_stream.mime_type
-        if mime_type is None:
-            raise ValueError(f"No mime type for file {file_key}")
+    try:
+        thumbnail = generate(
+            original_file_stream.file_stream,
+            width_in_pixels=width_in_pixels,
+            mime_type=thumbnail_mime_type,
+        )
+        phash: str | None = None
+        if thumbnail is not None:
+            phash = phash_from_thumbnail(thumbnail)
 
-        try:
-            thumbnail = generate(
-                file_stream.file_stream,
-                width_in_pixels=width_in_pixels,
-                mime_type=mime_type,
-            )
-            phash: str | None = None
-            if thumbnail is not None:
-                phash = phash_from_thumbnail(thumbnail)
+        # Only calculate checksum if we have a valid thumbnail
+        checksum: str | None = None
+        if thumbnail and thumbnail != b"":
+            checksum = hashlib.sha256(thumbnail).hexdigest()
 
-            # Only calculate checksum if we have a valid thumbnail
-            checksum: str | None = None
-            if thumbnail and thumbnail != b"":
-                checksum = hashlib.sha256(thumbnail).hexdigest()
+        return ThumbnailInfo(
+            thumbnail=thumbnail,
+            phash=phash,
+            checksum=checksum,
+        )
 
-            results[file_key] = ThumbnailComponents(thumbnail, phash, checksum)
-        finally:
-            # Always restore stream position, even if an error occurs
-            file_stream.file_stream.seek(initial_pos)
-
-    return results
+    finally:
+        # Always restore stream position, even if an error occurs
+        original_file_stream.file_stream.seek(initial_pos)

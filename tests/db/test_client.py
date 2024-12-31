@@ -30,9 +30,9 @@ def sample_entries():
     ]
 
 
-def test_register_files(db_client, sample_entries):
+def test_register_file_action(db_client, sample_entries):
     """Test registering new files with tags."""
-    registered = db_client.register_files(sample_entries)
+    registered = db_client.register_file_action(sample_entries)
     assert len(registered) == 1
 
     # Verify entries
@@ -49,7 +49,7 @@ def test_register_files(db_client, sample_entries):
 def test_file_history(db_client, sample_entries):
     """Test file history tracking."""
     # Create initial file
-    [initial_state] = db_client.register_files(sample_entries)
+    [initial_state] = db_client.register_file_action(sample_entries)
 
     # Verify initial history
     initial_history = db_client.get_file_history("test1.jpg")
@@ -71,7 +71,7 @@ def test_file_history(db_client, sample_entries):
         file_entity_uuid=initial_state.file_entity_uuid,
         tags=["tag1", "tag2"],  # Maintain tags
     )
-    db_client.register_files([moved])[0]
+    db_client.register_file_action([moved])[0]
 
     # Verify moved file history
     moved_history = db_client.get_file_history("moved.jpg")
@@ -109,6 +109,72 @@ def test_file_history(db_client, sample_entries):
     assert original_history[1].action_type == libression.entities.db.DBFileAction.CREATE
 
 
+def test_basic_tag_queries(db_client):
+    """Test basic tag inclusion/exclusion."""
+    entries = [
+        libression.entities.db.new_db_file_entry(
+            file_key="beach1.jpg", tags=["vacation", "beach", "summer"]
+        ),
+        libression.entities.db.new_db_file_entry(
+            file_key="work1.jpg", tags=["work", "important"]
+        ),
+    ]
+    registered = db_client.register_file_action(entries)
+    db_client.register_file_tags(registered)
+
+    beach_vacation = db_client.get_file_entries_by_tags(
+        include_tag_groups=[["vacation", "beach"]]
+    )
+    assert len(beach_vacation) == 1
+    assert beach_vacation[0].file_key == "beach1.jpg"
+
+
+def test_complex_tag_queries(db_client):
+    """Test complex tag group combinations."""
+    entries = [
+        libression.entities.db.new_db_file_entry(
+            file_key="beach1.jpg", tags=["vacation", "beach", "summer"]
+        ),
+        libression.entities.db.new_db_file_entry(
+            file_key="mountain1.jpg", tags=["vacation", "mountain", "winter"]
+        ),
+    ]
+    registered = db_client.register_file_action(entries)
+    db_client.register_file_tags(registered)
+
+    results = db_client.get_file_entries_by_tags(
+        include_tag_groups=[["summer", "beach"], ["winter", "mountain"]],
+        exclude_tags=["work"],
+    )
+    assert len(results) == 2
+    assert {f.file_key for f in results} == {"beach1.jpg", "mountain1.jpg"}
+
+
+def test_tag_history(db_client):
+    """Test tag history tracking."""
+    entries = [
+        libression.entities.db.new_db_file_entry(
+            file_key="test.jpg", tags=["initial", "tags"]
+        ),
+    ]
+    registered = db_client.register_file_action(entries)
+    db_client.register_file_tags(registered)
+
+    updated = libression.entities.db.existing_db_file_entry(
+        file_key="test.jpg",
+        file_entity_uuid=registered[0].file_entity_uuid,
+        action_type=libression.entities.db.DBFileAction.UPDATE,
+        tags=["updated", "tags"],
+    )
+    db_client.register_file_action([updated])
+    db_client.register_file_tags([updated])
+
+    history = db_client.get_tag_history("test.jpg")
+    assert len(history) == 2
+    assert history[0][1] == {"updated", "tags"}
+    assert history[1][1] == {"initial", "tags"}
+
+
 def test_tag_operations(db_client):
     """Test tag-based file queries."""
     # Create files with different tags
@@ -129,7 +195,7 @@ def test_tag_operations(db_client):
             file_key="draft1.jpg", tags=["work", "draft", "important"]
         ),
     ]
-    registered = db_client.register_files(entries)
+    registered = db_client.register_file_action(entries)
     db_client.register_file_tags(registered)
 
     # Test single group include
@@ -192,7 +258,7 @@ def test_tag_operations(db_client):
         action_type=libression.entities.db.DBFileAction.MOVE,
         tags=[],  # Tags handled separately
     )
-    db_client.register_files([moved])
+    db_client.register_file_action([moved])
 
     # Check file history shows actions
     history = db_client.get_file_history("moved.jpg")
@@ -216,7 +282,7 @@ def test_tag_operations(db_client):
         action_type=libression.entities.db.DBFileAction.UPDATE,
         tags={"vacation", "beach", "sunset"},
     )
-    db_client.register_files([updated])
+    db_client.register_file_action([updated])
     db_client.register_file_tags([updated])
 
     # Verify tag history shows changes
@@ -236,7 +302,7 @@ def test_similar_files(db_client, sample_entries):
         thumbnail_phash="different123",  # Different phash
     )
 
-    db_client.register_files(sample_entries + [similar])
+    db_client.register_file_action(sample_entries + [similar])
 
     # Find similar files
     similar_files = db_client.find_similar_files("test1.jpg")
@@ -247,7 +313,7 @@ def test_similar_files(db_client, sample_entries):
 def test_error_cases(db_client):
     """Test error handling."""
     # Test empty register
-    assert db_client.register_files([]) == []
+    assert db_client.register_file_action([]) == []
 
     # Test invalid action type
     with pytest.raises(ValueError):
@@ -261,9 +327,11 @@ def test_error_cases(db_client):
     assert db_client.get_file_entries_by_file_keys(["nonexistent.jpg"]) == []
     assert db_client.get_file_history("nonexistent.jpg") == []
 
-    # Test invalid tag queries
+
+def test_tag_error_cases(db_client):
+    """Test tag-related error cases."""
     with pytest.raises(ValueError):
-        db_client.get_file_entries_by_tags()  # No tags provided
+        db_client.get_file_entries_by_tags()  # No tags
 
     with pytest.raises(ValueError):
         db_client.get_file_entries_by_tags(

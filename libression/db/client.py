@@ -191,10 +191,11 @@ class DBClient:
                     file_key,
                     action_type,
                     thumbnail_key,
+                    thumbnail_mime_type,
                     thumbnail_checksum,
                     thumbnail_phash,
                     mime_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING id, action_created_at
                 """,
                 (
@@ -202,6 +203,7 @@ class DBClient:
                     entry.file_key,
                     entry.action_type.value,
                     entry.thumbnail_key,
+                    entry.thumbnail_mime_type,
                     entry.thumbnail_checksum,
                     entry.thumbnail_phash,
                     entry.mime_type,
@@ -210,7 +212,7 @@ class DBClient:
             for entry in entries
         ]
 
-    def register_files(
+    def register_file_action(
         self,
         entries: list[libression.entities.db.DBFileEntry],
     ) -> list[libression.entities.db.DBFileEntry]:
@@ -314,6 +316,7 @@ class DBClient:
         """
         Get current states of multiple files in chunks to avoid SQLite limits.
         Default chunk_size of 900 is conservative and safe for most SQLite builds.
+        combines latest file_actions and file_tags
         """
         if not file_keys:
             return []
