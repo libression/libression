@@ -28,6 +28,7 @@ coverage.xml
 .mypy_cache/
 .dmypy.json
 dmypy.json
+.ruff_cache/
 
 # IDE
 .vscode/

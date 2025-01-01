@@ -1,6 +1,6 @@
 import os
-
 import pytest
+import libression.db.client
 
 
 @pytest.fixture
@@ -21,3 +21,14 @@ def minimal_image(request) -> bytes:
     with open(filepath, "rb") as f:
         content = f.read()
     return content
+
+
+@pytest.fixture
+def db_client(tmp_path):
+    """Create a temporary database for testing."""
+    db_path = tmp_path / "test.db"
+    client = libression.db.client.DBClient(db_path)
+    yield client
+    # Clean up
+    if db_path.exists():
+        db_path.unlink()
