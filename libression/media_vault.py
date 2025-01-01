@@ -212,7 +212,7 @@ class MediaVault:
             libression.entities.io.FileStreams(
                 {thumbnail_file.key: thumbnail_file_stream}
             ),
-            chunk_byte_size=1024 * 1024,
+            chunk_byte_size=self.chunk_byte_size,
         )
 
         return thumbnail_info, thumbnail_file
@@ -382,12 +382,10 @@ class MediaVault:
         await self.data_io_handler.copy(
             file_key_mappings,
             delete_source=delete_source,
-            chunk_byte_size=self.chunk_byte_size,
         )
         await self.cache_io_handler.copy(
             file_key_mappings,
             delete_source=delete_source,
-            chunk_byte_size=self.chunk_byte_size,
         )
 
         if len(file_key_mappings) != len(existing_db_entries):

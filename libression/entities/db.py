@@ -31,14 +31,15 @@ class TagMapping:
 class DBFileAction(enum.Enum):
     """
     All actions that can be performed on a file
+
+    UPDATE includes:
+    - file changes (e.g. rotation or photoshop, can be libression/external)
+    - tag changes (doesn't go into file_action, just within function)
     """
 
-    CREATE = "CREATE"  # should always be first action
+    CREATE = "CREATE"  # should always be first action (also for copies)
     MOVE = "MOVE"
     DELETE = "DELETE"
-    # UPDATE includes:
-    # - file changes (e.g. rotation or photoshop, can be libression/external)
-    # - tag changes (doesn't go into file_action, just within function)
     UPDATE = "UPDATE"
 
 

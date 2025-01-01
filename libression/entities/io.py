@@ -4,6 +4,8 @@ import typing
 
 import libression.entities.media
 
+DEFAULT_CHUNK_BYTE_SIZE = 1024 * 1024 * 5  # 5MB
+
 
 @dataclasses.dataclass
 class FileKeyMapping:
@@ -48,7 +50,9 @@ class IOHandler(typing.Protocol):
     best to have fully qualified filepaths
     """
 
-    async def upload(self, file_streams: FileStreams, chunk_byte_size: int) -> None: ...
+    async def upload(
+        self, file_streams: FileStreams, chunk_byte_size: int = DEFAULT_CHUNK_BYTE_SIZE
+    ) -> None: ...
 
     def get_readonly_urls(
         self, file_keys: typing.Sequence[str], expires_in_seconds: int
@@ -66,6 +70,6 @@ class IOHandler(typing.Protocol):
         self,
         file_key_mappings: typing.Sequence[FileKeyMapping],
         delete_source: bool,  # False: copy, True: paste
-        chunk_byte_size: int,
         allow_missing: bool = False,
+        overwrite_existing: bool = True,
     ) -> None: ...

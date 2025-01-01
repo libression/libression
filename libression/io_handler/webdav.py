@@ -4,6 +4,7 @@ import datetime
 import enum
 import hashlib
 import logging
+import os
 import typing
 
 import bs4
@@ -60,9 +61,9 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             base_url: e.g. "https://localhost" (no slash at the end)
             url_path: e.g. "dummy/photos" (no leading/ending slash)
             presigned_url_path: e.g. "secure/read_only" (no leading/ending slash)
-            username: The username to use for authentication
-            password: The password to use for authentication
-            secret_key: The secret key to use for presigned URLs
+            username: The username to use for webdav authentication
+            password: The password to use for webdav authentication
+            secret_key: The secret key to use for presigned URLs (nginx secure link key)
             httpx_client: The httpx client to use for requests
         """
 
@@ -117,8 +118,8 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         self,
         file_key: str,
         file_stream: typing.IO[bytes],
-        chunk_byte_size: int,  # 1024 * 1024 is 1MB chunks
         opened_client: httpx.AsyncClient,
+        chunk_byte_size: int = libression.entities.io.DEFAULT_CHUNK_BYTE_SIZE,
     ) -> None:
         """
         Upload a single stream (in chunks)
@@ -130,6 +131,11 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             raise ValueError("chunk_byte_size must be positive")
         if opened_client.is_closed:
             raise ValueError("httpx client is closed")
+
+        # Ensure directory exists before upload
+        directory = os.path.dirname(file_key)
+        if directory:
+            await self._ensure_directory_exists(directory, opened_client)
 
         async def file_sender():  # func in func annoyingly but need to reference file_stream
             while True:
@@ -153,7 +159,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
     async def upload(
         self,
         file_streams: libression.entities.io.FileStreams,
-        chunk_byte_size: int,  # 1024 * 1024 is 1MB chunks
+        chunk_byte_size: int = libression.entities.io.DEFAULT_CHUNK_BYTE_SIZE,
     ) -> None:
         """
         Upload multiple streams (in chunks)
@@ -161,7 +167,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         async with self._create_httpx_client() as opened_client:
             upload_tasks = [
                 self._upload_single(
-                    file_key, stream.file_stream, chunk_byte_size, opened_client
+                    file_key, stream.file_stream, opened_client, chunk_byte_size
                 )
                 for file_key, stream in file_streams.file_streams.items()
             ]
@@ -234,7 +240,13 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         Not meant to be used directly (thus private)
         """
 
-        url = f"{self.base_url_with_path}/{dirpath.lstrip('/')}"
+        # Ensure directory path has trailing slash for WebDAV
+        dirpath = dirpath.rstrip("/")
+        url = (
+            f"{self.base_url_with_path}/{dirpath}/"
+            if dirpath
+            else f"{self.base_url_with_path}/"
+        )
 
         response = await opened_client.get(
             url,
@@ -321,11 +333,8 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             is_dir = raw_name.endswith("/")
             filename = raw_name[:-1] if is_dir else raw_name
 
-            href = links[raw_name]
-            absolute_path = (
-                f"{dirpath.strip('/')}/{href.strip('/')}"
-                if dirpath
-                else href.strip("/")
+            absolute_path = (f"{dirpath}/{filename}" if dirpath else filename).strip(
+                "/"
             )
 
             modified = datetime.datetime.strptime(
@@ -374,24 +383,50 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
 
         return secure_url
 
+    async def _ensure_directory_exists(self, url_dir_path: str, client) -> None:
+        """Create directory and all parent directories if they don't exist."""
+        parts = url_dir_path.split("/")
+        current_path = str(self.base_url_with_path)  # Start with base path
+
+        for part in parts:
+            if not part:
+                continue
+            current_path = f"{current_path}/{part}"
+
+            # Use full URL dir path (TRAILING SLASH is important) for the request
+            response = await client.request("MKCOL", f"{current_path}/", auth=self.auth)
+
+            # 405/409 means directory already exists, which is fine
+            if response.status_code not in (201, 405, 409):
+                print(f"MKCOL failed with body: {response.text}")
+                response.raise_for_status()
+
     async def _copy_single(
         self,
-        source_key: str,
-        destination_key: str,
+        file_key_mapping: libression.entities.io.FileKeyMapping,
         opened_client: httpx.AsyncClient,
         delete_source: bool,
         allow_missing: bool,
-        chunk_byte_size: int,  # No longer needed but kept for compatibility
+        overwrite_existing: bool,
     ) -> None:
         """Use WebDAV COPY/MOVE for efficient file operations"""
         method = "MOVE" if delete_source else "COPY"
 
+        destination_dir = os.path.dirname(file_key_mapping.destination_key)
+        if destination_dir:
+            await self._ensure_directory_exists(destination_dir, opened_client)
+
         # Construct source and destination URLs
-        source_url = f"{self.base_url_with_path}/{source_key}"
-        destination_url = f"{self.base_url_with_path}/{destination_key}"
+        source_url = f"{self.base_url_with_path}/{file_key_mapping.source_key}"
+        destination_url = (
+            f"{self.base_url_with_path}/{file_key_mapping.destination_key}"
+        )
 
         # WebDAV requires Destination header with absolute URL
-        headers = {"Destination": destination_url}
+        headers = {
+            "Destination": destination_url,
+            "Overwrite": "T" if overwrite_existing else "F",
+        }
 
         response = await opened_client.request(
             method, source_url, auth=self.auth, headers=headers
@@ -399,7 +434,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
 
         if response.status_code == 404:
             if not allow_missing:
-                raise ValueError(f"File {source_key} not found")
+                raise ValueError(f"File {file_key_mapping.source_key} not found")
             return None
 
         response.raise_for_status()
@@ -408,18 +443,17 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         self,
         file_key_mappings: typing.Sequence[libression.entities.io.FileKeyMapping],
         delete_source: bool,  # False: copy, True: paste
-        chunk_byte_size: int,
         allow_missing: bool = False,
+        overwrite_existing: bool = True,
     ) -> None:
         async with self._create_httpx_client() as opened_client:
             copy_tasks = [
                 self._copy_single(
-                    mapping.source_key,
-                    mapping.destination_key,
+                    mapping,
                     opened_client,
                     delete_source,
                     allow_missing,
-                    chunk_byte_size,
+                    overwrite_existing,
                 )
                 for mapping in file_key_mappings
             ]

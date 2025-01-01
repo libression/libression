@@ -15,7 +15,7 @@ PRESIGNED_URL_PATH = "readonly_dummy_photos"
 USERNAME = "chilledgeek"
 PASSWORD = "chilledgeek"
 SECRET_KEY = "chilledgeek_secret_key"
-CHUNK_BYTE_SIZE = 1024 * 1024  # 1MB
+CHUNK_BYTE_SIZE = 1024 * 1024 * 5  # 5MB
 
 # Set test vars
 TEST_DATA = b"Hello WebDAV!"
@@ -137,7 +137,6 @@ async def manual_test_webdav():
             )
         ],
         delete_source=True,
-        chunk_byte_size=CHUNK_BYTE_SIZE,
     )
     objects = await handler.list_objects(FOLDER_NAME)
     assert (
@@ -154,7 +153,6 @@ async def manual_test_webdav():
             )
         ],
         delete_source=False,
-        chunk_byte_size=CHUNK_BYTE_SIZE,
     )
     objects = await handler.list_objects()
     assert len([x for x in objects if x.absolute_path == FILE_KEY]) == 1

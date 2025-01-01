@@ -1,0 +1,53 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  WEBDAV_USER: libression_user
+  WEBDAV_PASSWORD: libression_password
+  NGINX_SECURE_LINK_KEY: libression_secret_key
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Set up pre-commit
+        run: |
+          poetry run pre-commit install
+          poetry run pre-commit run --all-files
+
+      - name: Start Docker services
+        run: |
+          docker-compose up -d
+          # Wait for WebDAV to be ready
+          timeout 60s bash -c 'until curl -k --fail https://localhost:8443/dummy_photos/ -u $WEBDAV_USER:$WEBDAV_PASSWORD; do sleep 1; done'
+          echo "WebDAV is ready!"
+
+      - name: Run tests
+        run: poetry run pytest -v
+
+      - name: Stop Docker services
+        if: always() # Run even if tests fail
+        run: docker-compose down

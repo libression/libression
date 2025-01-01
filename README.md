@@ -124,3 +124,22 @@ We need 3 things:
 - Install dependencies (cd into directory and do `poetry install`)
 - Run app with command `poetry run python main.py`
 - Open Web UI at `http://localhost:8000/`
+
+
+# NEW NOTES TO BE EDITTED
+
+
+Script ( in CI/local testing for linux docker setup)
+```
+#!/bin/bash
+# Generate self-signed certificates
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout cert.key \
+    -out cert.crt \
+    -subj "/C=US/ST=Test/L=Test/O=Test/CN=localhost"
+
+# Create htpasswd file
+htpasswd -cb .htpasswd libression_user libression_password
+```
+
+docker compose -f docker-compose.yml up -d
