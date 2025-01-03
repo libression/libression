@@ -4,9 +4,10 @@ import typing
 import av
 import cv2
 import numpy
+import httpx
 import PIL.Image
 import pillow_heif
-
+import libression.config
 import libression.entities.media
 
 logger = logging.getLogger(__name__)
@@ -61,12 +62,13 @@ def _image_thumbnail_from_opencv(
     return buffer.tobytes()
 
 
-def _video_thumbnail_from_av(
-    byte_stream: typing.BinaryIO, width_in_pixels: int, frame_count: int = 5
+def _process_video_frames(
+    container: av.container.Container,
+    width_in_pixels: int,
+    frame_count: int = 5,
 ) -> bytes | None:
+    """Common video processing logic for both URL and byte stream inputs"""
     try:
-        container = av.open(byte_stream)
-
         if not container.streams.video:
             logger.error("No video stream found")
             return None
@@ -175,11 +177,41 @@ def _video_thumbnail_from_av(
 
         return gif_buffer.getvalue()
 
+    except Exception as e:
+        logger.error(f"Error processing video frames: {e}")
+        return None
+
+
+def _video_thumbnail_from_av(
+    byte_stream: typing.BinaryIO,
+    width_in_pixels: int,
+    frame_count: int = 5,
+) -> bytes | None:
+    try:
+        container = av.open(byte_stream)
+        return _process_video_frames(container, width_in_pixels, frame_count)
     except av.AVError as e:
-        logger.error(f"Error processing video/gif: {e}")
+        logger.error(f"Error processing video/gif from byte stream: {e}")
         return None
     finally:
-        container.close()
+        if "container" in locals():
+            container.close()
+
+
+def _video_thumbnail_from_av_with_url(
+    url: str,
+    width_in_pixels: int,
+    frame_count: int = 5,
+) -> bytes | None:
+    try:
+        container = av.open(url)
+        return _process_video_frames(container, width_in_pixels, frame_count)
+    except av.AVError as e:
+        logger.error(f"Error processing video/gif from URL: {e}")
+        return None
+    finally:
+        if "container" in locals():
+            container.close()
 
 
 def generate(
@@ -187,13 +219,31 @@ def generate(
     width_in_pixels: int,
     mime_type: libression.entities.media.SupportedMimeType,
 ) -> bytes | None:
-    if isinstance(mime_type, libression.entities.media.HeifMimeType):
+    if mime_type in libression.entities.media.HEIC_PROCESSING_MIME_TYPES:
         return _heif_thumbnail_from_pillow(byte_stream, width_in_pixels)
-    elif isinstance(
-        mime_type, libression.entities.media.OpenCvProccessableImageMimeType
-    ):
+    elif mime_type in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES:
         return _image_thumbnail_from_opencv(byte_stream, width_in_pixels)
-    elif isinstance(mime_type, libression.entities.media.AvProccessableMimeType):
+    elif mime_type in libression.entities.media.AV_PROCESSING_MIME_TYPES:
         return _video_thumbnail_from_av(byte_stream, width_in_pixels)
 
+    return None
+
+
+def generate_from_presigned_url(
+    presigned_url: str,
+    width_in_pixels: int,
+    mime_type: libression.entities.media.SupportedMimeType,
+) -> bytes | None:
+    if mime_type in libression.entities.media.AV_PROCESSING_MIME_TYPES:
+        return _video_thumbnail_from_av_with_url(presigned_url, width_in_pixels)
+
+    # Not video, so not as big, get entire file
+    response = httpx.get(presigned_url, verify=False, follow_redirects=True)
+    response.raise_for_status()
+    byte_stream = io.BytesIO(response.content)
+
+    if mime_type in libression.entities.media.HEIC_PROCESSING_MIME_TYPES:
+        return _heif_thumbnail_from_pillow(byte_stream, width_in_pixels)
+    elif mime_type in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES:
+        return _image_thumbnail_from_opencv(byte_stream, width_in_pixels)
     return None

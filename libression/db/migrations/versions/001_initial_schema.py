@@ -58,9 +58,6 @@ def upgrade():
         sa.Column("tag_id", sa.Integer(), nullable=False),
         # Force timestamp declaration ("collections" of latest tags must have same timestamp)
         sa.Column("tags_created_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["file_entity_uuid"], ["file_actions.file_entity_uuid"]
-        ),
         sa.ForeignKeyConstraint(["tag_id"], ["tags.id"]),
     )
 
@@ -75,7 +72,7 @@ def upgrade():
     )
 
     # Tags index
-    op.create_index("idx_tags_name", "tags", ["name"])
+    op.create_index("idx_tags_name", "tags", ["name"], unique=True)
 
     # File Tags index (compound covers all cases)
     op.create_index(

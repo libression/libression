@@ -1,18 +1,6 @@
 import pytest
 
-import libression.db.client
 import libression.entities.db
-
-
-@pytest.fixture
-def db_client(tmp_path):
-    """Create a temporary database for testing."""
-    db_path = tmp_path / "test.db"
-    client = libression.db.client.DBClient(db_path)
-    yield client
-    # Clean up
-    if db_path.exists():
-        db_path.unlink()
 
 
 @pytest.fixture

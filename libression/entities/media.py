@@ -18,13 +18,27 @@ class SupportedMimeType(enum.Enum):
             return None
         return cls.from_value(mime_type)
 
+    @classmethod
+    def best_guess(
+        cls,
+        filename: str,
+        given_mime_type_str: str | None,
+    ) -> typing.Union["SupportedMimeType", None]:
+        output: SupportedMimeType | None = None
 
-class HeifMimeType(SupportedMimeType):
+        if given_mime_type_str is not None:  # first priority is given mime type
+            output = cls.from_value(given_mime_type_str)
+
+        if output is None and filename is not None:  # second priority is filename
+            output = cls.from_filename(filename)
+
+        return output
+
+    # Heif processing (special containers)
     HEIC = "image/heic"
     HEIF = "image/heif"
 
-
-class OpenCvProccessableImageMimeType(SupportedMimeType):
+    # OpenCv proccessing (photos)
     JPEG = "image/jpeg"
     PNG = "image/png"
     TIFF = "image/tiff"
@@ -42,11 +56,35 @@ class OpenCvProccessableImageMimeType(SupportedMimeType):
     X_XPIXMAP = "image/x-xpixmap"
     X_XWINDOWDUMP = "image/x-xwindowdump"
 
-
-class AvProccessableMimeType(SupportedMimeType):
+    # AV processing (videos)
     GIF = "image/gif"  # imdecode in opencv doesn't handle GIFs well
     MP4 = "video/mp4"
     MPEG = "video/mpeg"
     QUICKTIME = "video/quicktime"
     WEBM = "video/webm"
     X_MS_VIDEO = "video/x-msvideo"  # AVI
+
+
+HEIC_PROCESSING_MIME_TYPES = [
+    SupportedMimeType.HEIC,
+    SupportedMimeType.HEIF,
+]
+
+OPEN_CV_PROCESSING_MIME_TYPES = [
+    SupportedMimeType.JPEG,
+    SupportedMimeType.PNG,
+    SupportedMimeType.TIFF,
+    SupportedMimeType.WEBP,
+    SupportedMimeType.SVG_XML,
+    SupportedMimeType.ICON,
+    SupportedMimeType.BMP,
+]
+
+AV_PROCESSING_MIME_TYPES = [
+    SupportedMimeType.GIF,
+    SupportedMimeType.MP4,
+    SupportedMimeType.MPEG,
+    SupportedMimeType.QUICKTIME,
+    SupportedMimeType.WEBM,
+    SupportedMimeType.X_MS_VIDEO,
+]

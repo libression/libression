@@ -11,6 +11,7 @@ import bs4
 import httpx
 
 import libression.entities.io
+import libression.config
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +38,11 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
     def __init__(
         self,
         base_url: str,
-        username: str,
-        password: str,
-        secret_key: str,
         url_path: str,
         presigned_url_path: str,
+        username: str = libression.config.WEBDAV_USER,
+        password: str = libression.config.WEBDAV_PASSWORD,
+        secret_key: str = libression.config.NGINX_SECURE_LINK_KEY,
         verify_ssl: bool = True,
     ):
         """
@@ -117,9 +118,9 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
     async def _upload_single(
         self,
         file_key: str,
-        file_stream: typing.IO[bytes],
+        file_stream: libression.entities.io.FileStream,
         opened_client: httpx.AsyncClient,
-        chunk_byte_size: int = libression.entities.io.DEFAULT_CHUNK_BYTE_SIZE,
+        chunk_byte_size: int = libression.config.DEFAULT_CHUNK_BYTE_SIZE,
     ) -> None:
         """
         Upload a single stream (in chunks)
@@ -132,6 +133,10 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         if opened_client.is_closed:
             raise ValueError("httpx client is closed")
 
+        put_headers = {}
+        if file_stream.mime_type is not None:
+            put_headers["Content-Type"] = file_stream.mime_type.value  # get the string
+
         # Ensure directory exists before upload
         directory = os.path.dirname(file_key)
         if directory:
@@ -139,7 +144,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
 
         async def file_sender():  # func in func annoyingly but need to reference file_stream
             while True:
-                chunk = file_stream.read(
+                chunk = file_stream.file_stream.read(
                     chunk_byte_size
                 )  # Read only chunk_byte_size bytes
                 if not chunk:  # EOF
@@ -152,6 +157,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             f"{self.base_url_with_path}/{file_key}",
             auth=self.auth,
             content=file_sender(),  # Generator is consumed lazily
+            headers=put_headers,
         )
 
         response.raise_for_status()
@@ -159,16 +165,14 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
     async def upload(
         self,
         file_streams: libression.entities.io.FileStreams,
-        chunk_byte_size: int = libression.entities.io.DEFAULT_CHUNK_BYTE_SIZE,
+        chunk_byte_size: int = libression.config.DEFAULT_CHUNK_BYTE_SIZE,
     ) -> None:
         """
         Upload multiple streams (in chunks)
         """
         async with self._create_httpx_client() as opened_client:
             upload_tasks = [
-                self._upload_single(
-                    file_key, stream.file_stream, opened_client, chunk_byte_size
-                )
+                self._upload_single(file_key, stream, opened_client, chunk_byte_size)
                 for file_key, stream in file_streams.file_streams.items()
             ]
 
@@ -261,32 +265,36 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         self,
         dirpath: str,
         opened_client: httpx.AsyncClient,
-        max_folder_crawl: int = 100,
+        max_depth: int,
+        current_depth: int = 0,
     ) -> list[libression.entities.io.ListDirectoryObject]:
+        if current_depth >= max_depth:
+            return []
+
         results = []
-        to_visit = [dirpath]
-        folder_crawl_count = 0
 
-        while to_visit and folder_crawl_count <= max_folder_crawl:
-            current_dir = to_visit.pop(0)
-            dir_contents = await self._list_single_directory(current_dir, opened_client)
-            results.extend(dir_contents)
+        # Get initial directory listing
+        current_level = await self._list_single_directory(dirpath, opened_client)
+        results.extend(current_level)
 
-            for item in dir_contents:
-                if item.is_dir:
-                    to_visit.append(item.absolute_path)
-
-            folder_crawl_count += 1
-
-        if len(to_visit) > 0:
-            logger.warning(
-                f"Max folder crawl count {max_folder_crawl} reached. {len(to_visit)} folders not explored."
-            )
+        # Recursively list subdirectories
+        for item in current_level:
+            if item.is_dir:
+                # Get full path for subdirectory
+                subdir_path = item.absolute_path
+                # Recursively list contents
+                subdir_contents = await self._list_recursive(
+                    subdir_path, opened_client, max_depth, current_depth + 1
+                )
+                results.extend(subdir_contents)
 
         return results
 
     async def list_objects(
-        self, dirpath: str = "", subfolder_contents: bool = False
+        self,
+        dirpath: str = "",
+        subfolder_contents: bool = False,
+        max_depth: int = 5,
     ) -> list[libression.entities.io.ListDirectoryObject]:
         """List directory contents using GET request and parsing Nginx's autoindex
 
@@ -297,7 +305,9 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         """
         async with self._create_httpx_client() as opened_client:
             if subfolder_contents:
-                return await self._list_recursive(dirpath, opened_client)
+                return await self._list_recursive(
+                    dirpath, opened_client, max_depth=max_depth
+                )
             else:
                 return await self._list_single_directory(dirpath, opened_client)
 

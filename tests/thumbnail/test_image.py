@@ -13,12 +13,12 @@ import libression.thumbnail
 @pytest.mark.parametrize(
     "minimal_image,mime_type",
     [
-        ("jpg", libression.entities.media.OpenCvProccessableImageMimeType.JPEG),
-        ("png", libression.entities.media.OpenCvProccessableImageMimeType.PNG),
-        ("tiff", libression.entities.media.OpenCvProccessableImageMimeType.TIFF),
-        ("webp", libression.entities.media.OpenCvProccessableImageMimeType.WEBP),
-        ("heic", libression.entities.media.HeifMimeType.HEIC),
-        ("heif", libression.entities.media.HeifMimeType.HEIF),
+        ("jpg", libression.entities.media.SupportedMimeType.JPEG),
+        ("png", libression.entities.media.SupportedMimeType.PNG),
+        ("tiff", libression.entities.media.SupportedMimeType.TIFF),
+        ("webp", libression.entities.media.SupportedMimeType.WEBP),
+        ("heic", libression.entities.media.SupportedMimeType.HEIC),
+        ("heif", libression.entities.media.SupportedMimeType.HEIF),
     ],
     indirect=["minimal_image"],
 )
@@ -41,12 +41,12 @@ def test_generate_image_thumbnail(minimal_image, mime_type):
 @pytest.mark.parametrize(
     "minimal_image,mime_type",
     [
-        ("gif", libression.entities.media.AvProccessableMimeType.GIF),
-        ("mp4", libression.entities.media.AvProccessableMimeType.MP4),
-        ("mpeg", libression.entities.media.AvProccessableMimeType.MPEG),
-        ("mov", libression.entities.media.AvProccessableMimeType.QUICKTIME),
-        ("webm", libression.entities.media.AvProccessableMimeType.WEBM),
-        ("avi", libression.entities.media.AvProccessableMimeType.X_MS_VIDEO),
+        ("gif", libression.entities.media.SupportedMimeType.GIF),
+        ("mp4", libression.entities.media.SupportedMimeType.MP4),
+        ("mpeg", libression.entities.media.SupportedMimeType.MPEG),
+        ("mov", libression.entities.media.SupportedMimeType.QUICKTIME),
+        ("webm", libression.entities.media.SupportedMimeType.WEBM),
+        ("avi", libression.entities.media.SupportedMimeType.X_MS_VIDEO),
     ],
     indirect=["minimal_image"],
 )

@@ -1,10 +1,8 @@
 import dataclasses
 import datetime
 import typing
-
+import libression.config
 import libression.entities.media
-
-DEFAULT_CHUNK_BYTE_SIZE = 1024 * 1024 * 5  # 5MB
 
 
 @dataclasses.dataclass
@@ -51,14 +49,18 @@ class IOHandler(typing.Protocol):
     """
 
     async def upload(
-        self, file_streams: FileStreams, chunk_byte_size: int = DEFAULT_CHUNK_BYTE_SIZE
+        self,
+        file_streams: FileStreams,
+        chunk_byte_size: int = libression.config.DEFAULT_CHUNK_BYTE_SIZE,
     ) -> None: ...
 
     def get_readonly_urls(
         self, file_keys: typing.Sequence[str], expires_in_seconds: int
     ) -> GetUrlsResponse: ...
 
-    async def delete(self, file_keys: typing.Sequence[str]) -> None: ...
+    async def delete(
+        self, file_keys: typing.Sequence[str], raise_on_error: bool = True
+    ) -> None: ...
 
     async def list_objects(
         self, dirpath: str, subfolder_contents: bool = False

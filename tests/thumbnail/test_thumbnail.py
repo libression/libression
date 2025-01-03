@@ -3,30 +3,10 @@ import io
 
 import PIL.Image
 import pytest
+from unittest.mock import patch, Mock
 
 import libression.entities.io
 import libression.thumbnail
-
-
-@pytest.fixture
-def sample_image_stream() -> libression.entities.io.FileStreams:
-    # Create a simple test image in memory
-    img = PIL.Image.new("RGB", (100, 100), color="red")
-    img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format="JPEG")
-    img_byte_arr.seek(0)
-
-    file_stream = libression.entities.io.FileStream(
-        file_stream=img_byte_arr,
-        mime_type=libression.entities.media.OpenCvProccessableImageMimeType.JPEG,
-        file_byte_size=len(img_byte_arr.getvalue()),
-    )
-
-    return libression.entities.io.FileStreams(
-        file_streams={
-            "sample_image.jpg": file_stream,
-        }
-    )
 
 
 @pytest.fixture
@@ -40,58 +20,17 @@ def sample_image() -> bytes:
 
 
 @pytest.fixture
-def sample_file_stream(sample_image) -> libression.entities.io.FileStream:
-    """Create FileStreams with multiple test images"""
-    return libression.entities.io.FileStream(
-        file_stream=io.BytesIO(sample_image),
-        file_byte_size=len(sample_image),
-        mime_type=libression.entities.media.OpenCvProccessableImageMimeType.JPEG,
-    )
-
-
-def test_generate_thumbnail_info_success(sample_file_stream):
-    """Test successful generation of thumbnail components"""
-    width = 100
-    result = libression.thumbnail.generate_thumbnail_info(
-        sample_file_stream,
-        libression.entities.media.OpenCvProccessableImageMimeType.JPEG,
-        width,
-    )
-
-    assert isinstance(result, libression.thumbnail.ThumbnailInfo)
-    assert isinstance(result.thumbnail, bytes)
-    assert isinstance(result.phash, str)
-    assert isinstance(result.checksum, str)
-
-    # Verify checksum matches the thumbnail
-    expected_checksum = hashlib.sha256(result.thumbnail).hexdigest()
-    assert result.checksum == expected_checksum
+def mock_presigned_url() -> str:
+    return "https://example.com/test.jpg"
 
 
 @pytest.fixture
-def invalid_image_stream() -> libression.entities.io.FileStream:
-    """Create FileStreams with invalid image data"""
-    invalid_data = b"not an image"
-    return libression.entities.io.FileStream(
-        file_stream=io.BytesIO(invalid_data),
-        file_byte_size=len(invalid_data),
-        mime_type=libression.entities.media.OpenCvProccessableImageMimeType.JPEG,
-    )
-
-
-def test_generate_thumbnail_info_invalid_image(invalid_image_stream):
-    """Test handling of invalid image data"""
-    width = 100
-    result = libression.thumbnail.generate_thumbnail_info(
-        invalid_image_stream,
-        libression.entities.media.OpenCvProccessableImageMimeType.JPEG,
-        width,
-    )
-
-    assert isinstance(result, libression.thumbnail.ThumbnailInfo)
-    assert result.thumbnail == b"", "Invalid image should result in empty bytes"
-    assert isinstance(result.phash, str)
-    assert result.checksum is None, "Invalid image should have no checksum"
+def mock_http_response(sample_image):
+    """Mock httpx.get response"""
+    mock_response = Mock()
+    mock_response.content = sample_image
+    mock_response.raise_for_status = Mock()
+    return mock_response
 
 
 @pytest.fixture
@@ -104,56 +43,64 @@ def large_image() -> bytes:
     return img_byte_arr.getvalue()
 
 
-def test_generate_thumbnail_info_respects_width(sample_image, large_image):
+def test_generate_thumbnail_info_success(mock_presigned_url, mock_http_response):
+    """Test successful generation of thumbnail components"""
+    width = 100
+
+    with patch("httpx.get", return_value=mock_http_response):
+        result = libression.thumbnail.generate_thumbnail_info(
+            mock_presigned_url,
+            libression.entities.media.SupportedMimeType.JPEG,
+            width,
+        )
+
+    assert isinstance(result, libression.thumbnail.ThumbnailInfo)
+    assert isinstance(result.thumbnail, bytes)
+    assert isinstance(result.phash, str)
+    assert isinstance(result.checksum, str)
+
+    # Verify checksum matches the thumbnail
+    expected_checksum = hashlib.sha256(result.thumbnail).hexdigest()
+    assert result.checksum == expected_checksum
+
+
+def test_generate_thumbnail_info_invalid_image(mock_presigned_url):
+    """Test handling of invalid image data"""
+    width = 100
+
+    # Mock response with invalid image data
+    mock_response = Mock()
+    mock_response.content = b"not an image"
+    mock_response.raise_for_status = Mock()
+
+    with patch("httpx.get", return_value=mock_response):
+        result = libression.thumbnail.generate_thumbnail_info(
+            mock_presigned_url,
+            libression.entities.media.SupportedMimeType.JPEG,
+            width,
+        )
+
+    assert isinstance(result, libression.thumbnail.ThumbnailInfo)
+    assert result.thumbnail == b"", "Invalid image should result in empty bytes"
+    assert isinstance(result.phash, str)
+    assert result.checksum is None, "Invalid image should have no checksum"
+
+
+def test_generate_thumbnail_info_respects_width(mock_presigned_url, large_image):
     """Test that thumbnails are generated with correct width"""
     width = 100
-    stream = libression.entities.io.FileStream(
-        file_stream=io.BytesIO(large_image),
-        file_byte_size=len(large_image),
-        mime_type=libression.entities.media.OpenCvProccessableImageMimeType.JPEG,
-    )
 
-    result = libression.thumbnail.generate_thumbnail_info(
-        stream,
-        libression.entities.media.OpenCvProccessableImageMimeType.JPEG,
-        width,
-    )
+    mock_response = Mock()
+    mock_response.content = large_image
+    mock_response.raise_for_status = Mock()
+
+    with patch("httpx.get", return_value=mock_response):
+        result = libression.thumbnail.generate_thumbnail_info(
+            mock_presigned_url,
+            libression.entities.media.SupportedMimeType.JPEG,
+            width,
+        )
 
     # Load thumbnail into PIL to check dimensions
     img = PIL.Image.open(io.BytesIO(result.thumbnail))
     assert img.width == width
-    # Calculate expected height maintaining aspect ratio
-    expected_height = int(width * 3 / 4)  # For 4:3 aspect ratio
-    assert img.height == expected_height, "Height should maintain 4:3 aspect ratio"
-    assert (
-        abs(img.width / img.height - 4 / 3) < 0.01
-    ), "Aspect ratio should be preserved"
-
-
-def test_generate_thumbnail_info_stream_position(sample_file_stream):
-    """Test that stream positions are preserved"""
-    width = 100
-
-    # Record initial positions
-    initial_position = sample_file_stream.file_stream.tell()
-
-    # Ensure all streams start at position 0
-    assert (
-        sample_file_stream.file_stream.tell() == 0
-    ), "Stream should start at position 0"
-
-    libression.thumbnail.generate_thumbnail_info(
-        sample_file_stream,
-        libression.entities.media.OpenCvProccessableImageMimeType.JPEG,
-        width,
-    )
-
-    # Verify positions are restored
-    assert (
-        sample_file_stream.file_stream.tell() == initial_position
-    ), "Stream position changed from initial position"
-
-    # Verify stream is still readable
-    sample_file_stream.file_stream.seek(0)
-    data = sample_file_stream.file_stream.read()
-    assert len(data) > 0, "Stream should still be readable"

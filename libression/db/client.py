@@ -3,7 +3,7 @@ import datetime
 import pathlib
 import sqlite3
 import typing
-
+import contextlib
 import alembic.command
 from alembic.config import Config
 
@@ -64,21 +64,29 @@ class DBClient:
         # Run migrations
         alembic.command.upgrade(alembic_cfg, "head")
 
-    def _connect(self) -> sqlite3.Connection:
-        """Create a database connection with proper settings."""
-        conn = sqlite3.connect(
+    @contextlib.contextmanager
+    def _get_connection(self) -> typing.Generator[sqlite3.Connection, None, None]:
+        connection = sqlite3.connect(
             self.db_path,
-            detect_types=sqlite3.PARSE_DECLTYPES
-            | sqlite3.PARSE_COLNAMES,  # Enable type conversion
+            detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
         )
-        conn.row_factory = sqlite3.Row
+        # Enable dictionary-like row access
+        connection.row_factory = sqlite3.Row
 
-        # Performance optimizations
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA datetime_precision=6")
+        # Performance and durability settings
+        connection.execute(
+            "PRAGMA journal_mode=WAL"
+        )  # Write-Ahead Logging for better concurrency
+        connection.execute(
+            "PRAGMA synchronous=NORMAL"
+        )  # Good balance of safety and speed
+        connection.execute("PRAGMA datetime_precision=6")  # Microsecond precision
+        connection.execute("PRAGMA foreign_keys=ON")  # Enforce foreign key constraints
 
-        return conn
+        yield connection
+
+        connection.commit()
+        connection.close()
 
     ############################################################################################
     # tags and file_tags tables
@@ -168,7 +176,7 @@ class DBClient:
         if not entries:
             return
 
-        with self._connect() as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("BEGIN IMMEDIATE")
             self._insert_file_tags(entries, cursor)
@@ -196,7 +204,7 @@ class DBClient:
                     thumbnail_phash,
                     mime_type
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                RETURNING id, action_created_at
+                RETURNING id, action_created_at;
                 """,
                 (
                     entry.file_entity_uuid,
@@ -223,7 +231,7 @@ class DBClient:
         if not entries:
             return []
 
-        with self._connect() as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("BEGIN IMMEDIATE")
 
@@ -322,7 +330,7 @@ class DBClient:
             return []
 
         results = []
-        with self._connect() as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("BEGIN IMMEDIATE")
 
@@ -406,7 +414,7 @@ class DBClient:
         if all_include_tags.intersection(exclude_tags):
             raise ValueError("Include and exclude tags cannot overlap!")
 
-        with self._connect() as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
 
             # Base query with latest actions and tags
@@ -503,7 +511,7 @@ class DBClient:
         self, file_key: str
     ) -> list[libression.entities.db.DBFileEntry]:
         """Get history of file actions (CREATE/UPDATE/MOVE/DELETE)."""
-        with self._connect() as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("BEGIN IMMEDIATE")
 
@@ -546,7 +554,7 @@ class DBClient:
         self, file_key: str
     ) -> list[tuple[datetime.datetime, set[str]]]:
         """Get history of tag changes for a file."""
-        with self._connect() as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
 
             # First get the entity_uuid
@@ -592,7 +600,7 @@ class DBClient:
         self, file_key: str
     ) -> list[libression.entities.db.DBFileEntry]:
         """Find similar files using both checksum and phash."""
-        with self._connect() as conn:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("BEGIN IMMEDIATE")
 
