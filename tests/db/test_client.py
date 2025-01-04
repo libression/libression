@@ -4,11 +4,11 @@ import libression.entities.db
 
 
 @pytest.fixture
-def sample_entries():
+def sample_entries(dummy_file_key):
     """Create sample file entries for testing."""
     return [
         libression.entities.db.new_db_file_entry(
-            file_key="test1.jpg",
+            file_key=dummy_file_key,
             thumbnail_key="thumb1.jpg",
             thumbnail_checksum="abc123",
             thumbnail_phash="def456",
@@ -18,34 +18,34 @@ def sample_entries():
     ]
 
 
-def test_register_file_action(db_client, sample_entries):
+def test_register_file_action(db_client, sample_entries, dummy_file_key):
     """Test registering new files with tags."""
     registered = db_client.register_file_action(sample_entries)
     assert len(registered) == 1
 
     # Verify entries
-    states = db_client.get_file_entries_by_file_keys(["test1.jpg"])
+    states = db_client.get_file_entries_by_file_keys([dummy_file_key])
     assert len(states) == 1
     state = states[0]
-    assert state.file_key == "test1.jpg"
+    assert state.file_key == dummy_file_key
     assert state.thumbnail_checksum == "abc123"
     assert state.action_type == libression.entities.db.DBFileAction.CREATE
     assert state.mime_type == "image/jpeg"
     assert len(state.tags) == 0  # No tags
 
 
-def test_file_history(db_client, sample_entries):
+def test_file_history(db_client, sample_entries, dummy_file_key):
     """Test file history tracking."""
     # Create initial file
     [initial_state] = db_client.register_file_action(sample_entries)
 
     # Verify initial history
-    initial_history = db_client.get_file_history("test1.jpg")
+    initial_history = db_client.get_file_history(dummy_file_key)
     assert len(initial_history) == 1, (
         f"Initial history should have exactly 1 entry, got {len(initial_history)}. "
         f"Entries: {[(h.file_key, h.action_type) for h in initial_history]}"
     )
-    assert initial_history[0].file_key == "test1.jpg"
+    assert initial_history[0].file_key == dummy_file_key
     assert initial_history[0].action_type == libression.entities.db.DBFileAction.CREATE
     assert initial_history[0].file_entity_uuid == initial_state.file_entity_uuid
 
@@ -71,7 +71,7 @@ def test_file_history(db_client, sample_entries):
     # Verify history order (most recent first)
     assert moved_history[0].file_key == "moved.jpg"
     assert moved_history[0].action_type == libression.entities.db.DBFileAction.MOVE
-    assert moved_history[1].file_key == "test1.jpg"
+    assert moved_history[1].file_key == dummy_file_key
     assert moved_history[1].action_type == libression.entities.db.DBFileAction.CREATE
 
     # Verify file entity consistency
@@ -87,13 +87,13 @@ def test_file_history(db_client, sample_entries):
     ), "Found duplicate entries in history"
 
     # Verify original file history shows the complete entity history
-    original_history = db_client.get_file_history("test1.jpg")
+    original_history = db_client.get_file_history(dummy_file_key)
     assert (
         len(original_history) == 2
     ), "Original file should show complete entity history (CREATE and MOVE)"
     assert original_history[0].file_key == "moved.jpg"
     assert original_history[0].action_type == libression.entities.db.DBFileAction.MOVE
-    assert original_history[1].file_key == "test1.jpg"
+    assert original_history[1].file_key == dummy_file_key
     assert original_history[1].action_type == libression.entities.db.DBFileAction.CREATE
 
 
@@ -280,7 +280,7 @@ def test_tag_operations(db_client):
     assert tag_history[1][1] == {"vacation", "beach", "summer"}  # Original tags
 
 
-def test_similar_files(db_client, sample_entries):
+def test_similar_files(db_client, sample_entries, dummy_file_key):
     """Test finding similar files."""
     # Create files with same checksum but different phash
     similar = libression.entities.db.new_db_file_entry(
@@ -293,7 +293,7 @@ def test_similar_files(db_client, sample_entries):
     db_client.register_file_action(sample_entries + [similar])
 
     # Find similar files
-    similar_files = db_client.find_similar_files("test1.jpg")
+    similar_files = db_client.find_similar_files(dummy_file_key)
     assert len(similar_files) == 2  # Original + similar
     assert any(f.file_key == "similar.jpg" for f in similar_files)
 

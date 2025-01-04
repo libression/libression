@@ -4,6 +4,18 @@ import libression.db.client
 import libression.entities.io
 import libression.config
 import libression.io_handler.webdav
+import uuid
+
+
+@pytest.fixture
+def dummy_file_key():
+    return f"{uuid.uuid4()}.txt"
+
+
+@pytest.fixture
+def dummy_folder_name():
+    return str(uuid.uuid4())
+
 
 ###########################################################################
 # IO handler fixtures
@@ -59,16 +71,4 @@ def db_client(tmp_path):
     db_path = tmp_path / "test.db"
     client = libression.db.client.DBClient(db_path)
 
-    yield client
-
-    # Clean up
-    client.close()  # Close connections
-    if db_path.exists():
-        db_path.unlink()
-    # Clean up WAL and SHM files
-    wal_file = db_path.with_suffix(".db-wal")
-    if wal_file.exists():
-        wal_file.unlink()
-    shm_file = db_path.with_suffix(".db-shm")
-    if shm_file.exists():
-        shm_file.unlink()
+    return client

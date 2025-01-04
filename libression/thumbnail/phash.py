@@ -58,6 +58,7 @@ def phash_from_thumbnail(thumbnail_bytes: bytes, pixels: int = 4) -> str:
     Returns:
         Hash string, with multiple hashes separated by commas for GIFs
     """
+    img: PIL.Image.Image | None = None
 
     try:
         img = PIL.Image.open(io.BytesIO(thumbnail_bytes))
@@ -87,6 +88,9 @@ def phash_from_thumbnail(thumbnail_bytes: bytes, pixels: int = 4) -> str:
     except Exception as e:
         logger.error(f"Error generating hash: {e}")
         return ""
+    finally:
+        if img:
+            img.close()
 
 
 def compare_thumbnail_hashes(hash1: str, hash2: str) -> bool:

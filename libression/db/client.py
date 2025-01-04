@@ -324,7 +324,7 @@ class DBClient:
         """
         Get current states of multiple files in chunks to avoid SQLite limits.
         Default chunk_size of 900 is conservative and safe for most SQLite builds.
-        combines latest file_actions and file_tags
+        Only returns entries where the most recent action is not DELETE.
         """
         if not file_keys:
             return []
@@ -339,41 +339,62 @@ class DBClient:
                 chunk = file_keys[i : i + chunk_size]
                 placeholders = ",".join(["?"] * len(chunk))
 
-                # Base query for latest non-deleted state
                 query = """
-                WITH latest_states AS (
-                    SELECT
-                        file_key,
-                        MAX(action_created_at) as latest_at
+                WITH file_entities AS (
+                    -- Get file_entity_uuids for the requested file_keys
+                    SELECT DISTINCT file_entity_uuid
                     FROM file_actions
                     WHERE file_key IN ({})
-                    AND action_type != 'DELETE'
-                    GROUP BY file_key
-                )
-                , latest_tags AS (
+                ),
+                ranked_actions AS (
+                    -- Rank actions by recency for each file_entity_uuid
+                    SELECT
+                        *,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY file_entity_uuid
+                            ORDER BY action_created_at DESC, id DESC
+                        ) as action_rank
+                    FROM file_actions
+                    WHERE file_entity_uuid IN (
+                        SELECT file_entity_uuid FROM file_entities
+                    )
+                ),
+                latest_actions AS (
+                    -- Get only the most recent action for each file entity
+                    SELECT *
+                    FROM ranked_actions
+                    WHERE action_rank = 1
+                    AND action_type != 'DELETE'  -- Exclude files whose latest action is DELETE
+                    AND file_key IN ({})  -- Only return requested file_keys
+                ),
+                latest_tags AS (
+                    -- Get latest tags for each file entity
                     SELECT
                         ft.file_entity_uuid,
                         GROUP_CONCAT(ft.tag_id) as tag_ids
                     FROM file_tags ft
                     JOIN (
-                        SELECT file_entity_uuid, MAX(tags_created_at) as max_created
+                        SELECT
+                            file_entity_uuid,
+                            MAX(tags_created_at) as max_created
                         FROM file_tags
                         GROUP BY file_entity_uuid, tag_id
                     ) lt ON ft.file_entity_uuid = lt.file_entity_uuid
                         AND ft.tags_created_at = lt.max_created
                     GROUP BY ft.file_entity_uuid
                 )
-                SELECT f.*, COALESCE(lt.tag_ids, '') as tag_ids
-                FROM file_actions f
-                JOIN latest_states ls
-                    ON f.file_key = ls.file_key
-                    AND f.action_created_at = ls.latest_at
+                SELECT
+                    f.*,
+                    COALESCE(lt.tag_ids, '') as tag_ids
+                FROM latest_actions f
                 LEFT JOIN latest_tags lt
                     ON lt.file_entity_uuid = f.file_entity_uuid
                 ORDER BY f.action_created_at DESC, f.id DESC
-                """.format(placeholders)
+                """.format(placeholders, placeholders)  # Need placeholders twice
 
-                rows = cursor.execute(query, chunk).fetchall()
+                rows = cursor.execute(
+                    query, chunk + chunk
+                ).fetchall()  # Pass chunk twice for both IN clauses
                 results.extend(
                     [self._file_entry_from_db_row(row, cursor) for row in rows]
                 )

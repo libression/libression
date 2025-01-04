@@ -46,20 +46,36 @@ def _image_thumbnail_from_opencv(
     byte_stream: typing.BinaryIO,
     width_in_pixels: int,
 ) -> bytes:
-    # Read stream and convert to numpy array
-    file_bytes = numpy.asarray(bytearray(byte_stream.read()), dtype=numpy.uint8)
-    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    try:
+        byte_stream.seek(0)
 
-    if img is None:
-        return b""  # Return empty bytes for invalid images
+        content = byte_stream.read()
+        if not content:
+            raise RuntimeError("Empty bytestream? shouldn't be here?")
 
-    # Calculate new height maintaining aspect ratio
-    height = int(img.shape[0] * width_in_pixels / img.shape[1])
-    resized = cv2.resize(img, (width_in_pixels, height), interpolation=cv2.INTER_AREA)
+        # Read stream and convert to numpy array
+        file_bytes = numpy.asarray(bytearray(content), dtype=numpy.uint8)
+        img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-    # Encode to JPEG
-    _, buffer = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    return buffer.tobytes()
+        if img is None:
+            logger.error("Failed to decode image")
+            return b""  # Return empty bytes for invalid images
+
+        # Calculate new height maintaining aspect ratio
+        height = int(img.shape[0] * width_in_pixels / img.shape[1])
+        resized = cv2.resize(
+            img, (width_in_pixels, height), interpolation=cv2.INTER_AREA
+        )
+
+        # Encode to JPEG
+        success, buffer = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        if not success:
+            logger.error("Failed to encode image")
+            return b""  # Return empty bytes for invalid images
+
+        return buffer.tobytes()
+    finally:
+        byte_stream.seek(0)
 
 
 def _process_video_frames(
@@ -238,12 +254,18 @@ def generate_from_presigned_url(
         return _video_thumbnail_from_av_with_url(presigned_url, width_in_pixels)
 
     # Not video, so not as big, get entire file
-    response = httpx.get(presigned_url, verify=False, follow_redirects=True)
-    response.raise_for_status()
-    byte_stream = io.BytesIO(response.content)
+    byte_stream: typing.BinaryIO | None = None
 
-    if mime_type in libression.entities.media.HEIC_PROCESSING_MIME_TYPES:
-        return _heif_thumbnail_from_pillow(byte_stream, width_in_pixels)
-    elif mime_type in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES:
-        return _image_thumbnail_from_opencv(byte_stream, width_in_pixels)
-    return None
+    try:
+        response = httpx.get(presigned_url, verify=False, follow_redirects=True)
+        response.raise_for_status()
+        byte_stream = io.BytesIO(response.content)
+
+        if mime_type in libression.entities.media.HEIC_PROCESSING_MIME_TYPES:
+            return _heif_thumbnail_from_pillow(byte_stream, width_in_pixels)
+        elif mime_type in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES:
+            return _image_thumbnail_from_opencv(byte_stream, width_in_pixels)
+        return None
+    finally:
+        if "byte_stream" in locals() and byte_stream is not None:
+            byte_stream.close()

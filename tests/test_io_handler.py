@@ -1,20 +1,9 @@
 import pytest
 import io
-import uuid
 from libression.entities.io import FileStreams, FileStream, FileKeyMapping
 
 
 TEST_DATA = b"Hello Test!"
-
-
-@pytest.fixture
-def file_key():
-    return f"{uuid.uuid4()}.txt"
-
-
-@pytest.fixture
-def folder_name():
-    return str(uuid.uuid4())
 
 
 @pytest.fixture
@@ -28,41 +17,46 @@ def test_file_stream():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("io_handler_fixture_name", ["docker_webdav_io_handler"])
 async def test_upload_and_list(
-    io_handler_fixture_name, file_key, test_file_stream, request: pytest.FixtureRequest
+    io_handler_fixture_name,
+    dummy_file_key,
+    test_file_stream,
+    request: pytest.FixtureRequest,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
 
     try:
         # Test upload
-        await io_handler.upload(FileStreams(file_streams={file_key: test_file_stream}))
+        await io_handler.upload(
+            FileStreams(file_streams={dummy_file_key: test_file_stream})
+        )
 
         # Verify upload
         objects = await io_handler.list_objects()
-        found_files = [x for x in objects if x.filename == file_key]
+        found_files = [x for x in objects if x.filename == dummy_file_key]
         assert len(found_files) == 1
         assert found_files[0].size == len(TEST_DATA)
     finally:
         # Cleanup: delete test file
-        await io_handler.delete([file_key], raise_on_error=False)
+        await io_handler.delete([dummy_file_key], raise_on_error=False)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("io_handler_fixture_name", ["docker_webdav_io_handler"])
 async def test_nested_upload(
     io_handler_fixture_name,
-    file_key,
-    folder_name,
+    dummy_file_key,
+    dummy_folder_name,
     test_file_stream,
     request: pytest.FixtureRequest,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
-    nested_key = f"{folder_name}/{file_key}"
+    nested_key = f"{dummy_folder_name}/{dummy_file_key}"
     try:
         await io_handler.upload(
             FileStreams(file_streams={nested_key: test_file_stream})
         )
 
-        objects = await io_handler.list_objects(folder_name)
+        objects = await io_handler.list_objects(dummy_folder_name)
         found_files = [x for x in objects if x.absolute_path == nested_key]
         assert len(found_files) == 1
         assert found_files[0].size == len(TEST_DATA)
@@ -75,36 +69,40 @@ async def test_nested_upload(
 @pytest.mark.parametrize("io_handler_fixture_name", ["docker_webdav_io_handler"])
 async def test_get_readonly_urls(
     io_handler_fixture_name,
-    file_key,
+    dummy_file_key,
     test_file_stream,
     request: pytest.FixtureRequest,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
     # Upload file first
-    await io_handler.upload(FileStreams(file_streams={file_key: test_file_stream}))
+    await io_handler.upload(
+        FileStreams(file_streams={dummy_file_key: test_file_stream})
+    )
 
     # Test URL generation
-    urls = io_handler.get_readonly_urls([file_key], expires_in_seconds=3600)
-    assert file_key in urls.urls
-    assert "://" in urls.urls[file_key]  # protocol is present
+    urls = io_handler.get_readonly_urls([dummy_file_key], expires_in_seconds=3600)
+    assert dummy_file_key in urls.urls
+    assert "://" in urls.urls[dummy_file_key]  # protocol is present
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("io_handler_fixture_name", ["docker_webdav_io_handler"])
 async def test_delete(
     io_handler_fixture_name,
-    file_key,
+    dummy_file_key,
     test_file_stream,
     request: pytest.FixtureRequest,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
     # Upload file first
-    await io_handler.upload(FileStreams(file_streams={file_key: test_file_stream}))
+    await io_handler.upload(
+        FileStreams(file_streams={dummy_file_key: test_file_stream})
+    )
 
     # Test delete
-    await io_handler.delete([file_key])
+    await io_handler.delete([dummy_file_key])
     objects = await io_handler.list_objects()
-    assert len([x for x in objects if x.filename == file_key]) == 0
+    assert len([x for x in objects if x.filename == dummy_file_key]) == 0
 
 
 @pytest.mark.asyncio
@@ -126,26 +124,28 @@ async def test_delete_missing_file(
 @pytest.mark.parametrize("io_handler_fixture_name", ["docker_webdav_io_handler"])
 async def test_copy(
     io_handler_fixture_name,
-    file_key,
-    folder_name,
+    dummy_file_key,
+    dummy_folder_name,
     test_file_stream,
     request: pytest.FixtureRequest,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
-    nested_key = f"{folder_name}/{file_key}"
+    nested_key = f"{dummy_folder_name}/{dummy_file_key}"
     try:
         # Upload initial file
-        await io_handler.upload(FileStreams(file_streams={file_key: test_file_stream}))
+        await io_handler.upload(
+            FileStreams(file_streams={dummy_file_key: test_file_stream})
+        )
 
         # Test copy
         await io_handler.copy(
-            [FileKeyMapping(source_key=file_key, destination_key=nested_key)],
+            [FileKeyMapping(source_key=dummy_file_key, destination_key=nested_key)],
             delete_source=False,
         )
 
         # Verify both files exist
         objects = await io_handler.list_objects(subfolder_contents=True)
-        source_files = [x for x in objects if x.absolute_path == file_key]
+        source_files = [x for x in objects if x.absolute_path == dummy_file_key]
         dest_files = [x for x in objects if x.absolute_path == nested_key]
 
         assert len(source_files) == 1, "Source file should exist"
@@ -154,31 +154,33 @@ async def test_copy(
         assert dest_files[0].size == len(TEST_DATA)
     finally:
         # Cleanup: delete both source and destination files
-        await io_handler.delete([file_key, nested_key], raise_on_error=True)
+        await io_handler.delete([dummy_file_key, nested_key], raise_on_error=True)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("io_handler_fixture_name", ["docker_webdav_io_handler"])
 async def test_move(
     io_handler_fixture_name,
-    file_key,
+    dummy_file_key,
     test_file_stream,
     request: pytest.FixtureRequest,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
-    new_key = f"moved_{file_key}"
+    new_key = f"moved_{dummy_file_key}"
     try:
         # Upload initial file
-        await io_handler.upload(FileStreams(file_streams={file_key: test_file_stream}))
+        await io_handler.upload(
+            FileStreams(file_streams={dummy_file_key: test_file_stream})
+        )
 
         # Test move
         await io_handler.copy(
-            [FileKeyMapping(source_key=file_key, destination_key=new_key)],
+            [FileKeyMapping(source_key=dummy_file_key, destination_key=new_key)],
             delete_source=True,
         )
 
         objects = await io_handler.list_objects()
-        assert len([x for x in objects if x.absolute_path == file_key]) == 0
+        assert len([x for x in objects if x.absolute_path == dummy_file_key]) == 0
         assert len([x for x in objects if x.absolute_path == new_key]) == 1
     finally:
         # Cleanup
@@ -189,20 +191,22 @@ async def test_move(
 @pytest.mark.parametrize("io_handler_fixture_name", ["docker_webdav_io_handler"])
 async def test_copy_with_overwrite(
     io_handler_fixture_name,
-    file_key,
-    folder_name,
+    dummy_file_key,
+    dummy_folder_name,
     test_file_stream,
     request: pytest.FixtureRequest,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
-    nested_key = f"{folder_name}/{file_key}"
+    nested_key = f"{dummy_folder_name}/{dummy_file_key}"
     try:
         # Upload initial file
-        await io_handler.upload(FileStreams(file_streams={file_key: test_file_stream}))
+        await io_handler.upload(
+            FileStreams(file_streams={dummy_file_key: test_file_stream})
+        )
 
         # First copy should succeed
         await io_handler.copy(
-            [FileKeyMapping(source_key=file_key, destination_key=nested_key)],
+            [FileKeyMapping(source_key=dummy_file_key, destination_key=nested_key)],
             delete_source=False,
             overwrite_existing=False,
         )
@@ -210,39 +214,39 @@ async def test_copy_with_overwrite(
         # Second copy with overwrite=False should fail
         with pytest.raises(Exception):  # or more specific exception
             await io_handler.copy(
-                [FileKeyMapping(source_key=file_key, destination_key=nested_key)],
+                [FileKeyMapping(source_key=dummy_file_key, destination_key=nested_key)],
                 delete_source=False,
                 overwrite_existing=False,
             )
 
         # Second copy with overwrite=True should succeed
         await io_handler.copy(
-            [FileKeyMapping(source_key=file_key, destination_key=nested_key)],
+            [FileKeyMapping(source_key=dummy_file_key, destination_key=nested_key)],
             delete_source=False,
             overwrite_existing=True,
         )
 
     finally:
         # Cleanup
-        await io_handler.delete([file_key, nested_key], raise_on_error=True)
+        await io_handler.delete([dummy_file_key, nested_key], raise_on_error=True)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("io_handler_fixture_name", ["docker_webdav_io_handler"])
 async def test_move_with_overwrite(
     io_handler_fixture_name,
-    file_key,
+    dummy_file_key,
     test_file_stream,
     request: pytest.FixtureRequest,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
-    new_key = f"moved_{file_key}"
+    new_key = f"moved_{dummy_file_key}"
     try:
         # Upload initial files
         await io_handler.upload(
             FileStreams(
                 file_streams={
-                    file_key: test_file_stream,
+                    dummy_file_key: test_file_stream,
                     new_key: test_file_stream,  # Create destination file
                 }
             )
@@ -251,20 +255,20 @@ async def test_move_with_overwrite(
         # Move with overwrite=False should fail
         with pytest.raises(Exception):
             await io_handler.copy(
-                [FileKeyMapping(source_key=file_key, destination_key=new_key)],
+                [FileKeyMapping(source_key=dummy_file_key, destination_key=new_key)],
                 delete_source=True,
                 overwrite_existing=False,
             )
 
         # Move with overwrite=True should succeed
         await io_handler.copy(
-            [FileKeyMapping(source_key=file_key, destination_key=new_key)],
+            [FileKeyMapping(source_key=dummy_file_key, destination_key=new_key)],
             delete_source=True,
             overwrite_existing=True,
         )
 
         objects = await io_handler.list_objects()
-        assert len([x for x in objects if x.absolute_path == file_key]) == 0
+        assert len([x for x in objects if x.absolute_path == dummy_file_key]) == 0
         assert len([x for x in objects if x.absolute_path == new_key]) == 1
 
     finally:
@@ -276,14 +280,14 @@ async def test_move_with_overwrite(
 @pytest.mark.parametrize("io_handler_fixture_name", ["docker_webdav_io_handler"])
 async def test_list_objects_with_nested_paths(
     io_handler_fixture_name,
-    file_key,
-    folder_name,
+    dummy_file_key,
+    dummy_folder_name,
     test_file_stream,
     request: pytest.FixtureRequest,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
-    root_key = file_key
-    nested_key = f"{folder_name}/{file_key}"
+    root_key = dummy_file_key
+    nested_key = f"{dummy_folder_name}/{dummy_file_key}"
     try:
         # Upload both files
         await io_handler.upload(
@@ -306,7 +310,7 @@ async def test_list_objects_with_nested_paths(
 
         # Test listing folder specifically
         folder_objects = await io_handler.list_objects(
-            folder_name, subfolder_contents=True
+            dummy_folder_name, subfolder_contents=True
         )
         folder_files = [x for x in folder_objects if x.absolute_path == nested_key]
         assert (
@@ -321,15 +325,15 @@ async def test_list_objects_with_nested_paths(
 @pytest.mark.parametrize("io_handler_fixture_name", ["docker_webdav_io_handler"])
 async def test_list_objects_single_vs_recursive(
     io_handler_fixture_name,
-    file_key,
-    folder_name,
+    dummy_file_key,
+    dummy_folder_name,
     test_file_stream,
     request: pytest.FixtureRequest,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
-    root_key = file_key
-    nested_key = f"{folder_name}/{file_key}"
-    nested_subfolder_key = f"{folder_name}/subfolder/{file_key}"
+    root_key = dummy_file_key
+    nested_key = f"{dummy_folder_name}/{dummy_file_key}"
+    nested_subfolder_key = f"{dummy_folder_name}/subfolder/{dummy_file_key}"
 
     try:
         # Upload files in different directory levels
@@ -349,7 +353,13 @@ async def test_list_objects_single_vs_recursive(
             len([x for x in root_objects if x.absolute_path == root_key]) == 1
         ), "Root file should be listed"
         assert (
-            len([x for x in root_objects if x.is_dir and x.filename == folder_name])
+            len(
+                [
+                    x
+                    for x in root_objects
+                    if x.is_dir and x.filename == dummy_folder_name
+                ]
+            )
             == 1
         ), "Folder should be listed"
         assert (
@@ -357,7 +367,7 @@ async def test_list_objects_single_vs_recursive(
         ), "Nested file should not be listed"
 
         folder_objects = await io_handler.list_objects(
-            folder_name, subfolder_contents=False
+            dummy_folder_name, subfolder_contents=False
         )
         assert (
             len([x for x in folder_objects if x.absolute_path == nested_key]) == 1
@@ -389,7 +399,7 @@ async def test_list_objects_single_vs_recursive(
         ), "Deeply nested file should be listed"
 
         folder_objects_recursive = await io_handler.list_objects(
-            folder_name, subfolder_contents=True
+            dummy_folder_name, subfolder_contents=True
         )
         assert (
             len([x for x in folder_objects_recursive if x.absolute_path == nested_key])
@@ -420,7 +430,7 @@ async def test_list_objects_single_vs_recursive(
 @pytest.mark.parametrize("io_handler_fixture_name", ["docker_webdav_io_handler"])
 async def test_list_objects_max_depth(
     io_handler_fixture_name,
-    file_key,
+    dummy_file_key,
     test_file_stream,
     request: pytest.FixtureRequest,
 ):
@@ -439,10 +449,10 @@ async def test_list_objects_max_depth(
     #         - file4.txt
 
     nested_files = {
-        f"level1/{file_key}": test_file_stream,
-        f"level1/level2/{file_key}": test_file_stream,
-        f"level1/level2/level3/{file_key}": test_file_stream,
-        f"level1/level2/level3/level4/{file_key}": test_file_stream,
+        f"level1/{dummy_file_key}": test_file_stream,
+        f"level1/level2/{dummy_file_key}": test_file_stream,
+        f"level1/level2/level3/{dummy_file_key}": test_file_stream,
+        f"level1/level2/level3/level4/{dummy_file_key}": test_file_stream,
     }
 
     try:
@@ -456,17 +466,18 @@ async def test_list_objects_max_depth(
 
         # Should find files up to level2 but not deeper
         assert any(
-            obj.absolute_path == f"level1/{file_key}" for obj in objects_depth2
+            obj.absolute_path == f"level1/{dummy_file_key}" for obj in objects_depth2
         ), "Should find level 1 file"
         assert any(
-            obj.absolute_path == f"level1/level2/{file_key}" for obj in objects_depth2
+            obj.absolute_path == f"level1/level2/{dummy_file_key}"
+            for obj in objects_depth2
         ), "Should find level 2 file"
         assert not any(
-            obj.absolute_path == f"level1/level2/level3/{file_key}"
+            obj.absolute_path == f"level1/level2/level3/{dummy_file_key}"
             for obj in objects_depth2
         ), "Should not find level 3 file"
         assert not any(
-            obj.absolute_path == f"level1/level2/level3/level4/{file_key}"
+            obj.absolute_path == f"level1/level2/level3/level4/{dummy_file_key}"
             for obj in objects_depth2
         ), "Should not find level 4 file"
 
@@ -477,17 +488,18 @@ async def test_list_objects_max_depth(
 
         # Should find files up to level3 but not level4
         assert any(
-            obj.absolute_path == f"level1/{file_key}" for obj in objects_depth3
+            obj.absolute_path == f"level1/{dummy_file_key}" for obj in objects_depth3
         ), "Should find level 1 file"
         assert any(
-            obj.absolute_path == f"level1/level2/{file_key}" for obj in objects_depth3
+            obj.absolute_path == f"level1/level2/{dummy_file_key}"
+            for obj in objects_depth3
         ), "Should find level 2 file"
         assert any(
-            obj.absolute_path == f"level1/level2/level3/{file_key}"
+            obj.absolute_path == f"level1/level2/level3/{dummy_file_key}"
             for obj in objects_depth3
         ), "Should find level 3 file"
         assert not any(
-            obj.absolute_path == f"level1/level2/level3/level4/{file_key}"
+            obj.absolute_path == f"level1/level2/level3/level4/{dummy_file_key}"
             for obj in objects_depth3
         ), "Should not find level 4 file"
 
