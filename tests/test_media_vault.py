@@ -3,6 +3,7 @@ import uuid
 import io
 import httpx
 import libression.entities.io
+import libression.entities.base
 import libression.entities.media
 import libression.entities.db
 import libression.db.client
@@ -55,12 +56,11 @@ async def test_get_files_info_existing_thumbnails(
 
     byte_stream = io.BytesIO(minimal_image)
     await io_handler.upload(
-        libression.entities.io.FileStreams(
+        libression.entities.io.FileStreamInfos(
             file_streams={
-                png_file_key: libression.entities.io.FileStream(
+                png_file_key: libression.entities.io.FileStreamInfo(
                     file_stream=byte_stream,
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
-                    file_byte_size=len(minimal_image),
                 )
             }
         )
@@ -104,17 +104,15 @@ async def test_delete_files(
     png_file_key = f"{uuid.uuid4()}.png"
 
     await io_handler.upload(
-        libression.entities.io.FileStreams(
+        libression.entities.io.FileStreamInfos(
             file_streams={
-                png_file_key: libression.entities.io.FileStream(
+                png_file_key: libression.entities.io.FileStreamInfo(
                     file_stream=io.BytesIO(minimal_image),
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
-                    file_byte_size=len(minimal_image),
                 ),
-                f"{dummy_folder_name}/{png_file_key}": libression.entities.io.FileStream(
+                f"{dummy_folder_name}/{png_file_key}": libression.entities.io.FileStreamInfo(
                     file_stream=io.BytesIO(minimal_image),  # fresh bytesIO copy
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
-                    file_byte_size=len(minimal_image),
                 ),
             }
         )
@@ -170,17 +168,15 @@ async def test_copy_files(
     png_file_key = f"{uuid.uuid4()}.png"
 
     await io_handler.upload(
-        libression.entities.io.FileStreams(
+        libression.entities.io.FileStreamInfos(
             file_streams={
-                png_file_key: libression.entities.io.FileStream(
+                png_file_key: libression.entities.io.FileStreamInfo(
                     file_stream=io.BytesIO(minimal_image),
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
-                    file_byte_size=len(minimal_image),
                 ),
-                f"{dummy_folder_name}/{png_file_key}": libression.entities.io.FileStream(
+                f"{dummy_folder_name}/{png_file_key}": libression.entities.io.FileStreamInfo(
                     file_stream=io.BytesIO(minimal_image),  # fresh bytesIO copy
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
-                    file_byte_size=len(minimal_image),
                 ),
             }
         )
@@ -205,14 +201,23 @@ async def test_copy_files(
         delete_source=False,  # Copy
     )
 
+    # Assert
+    assert len([x for x in result if x.success]) == 2
+    assert len([x for x in result if x.error is not None]) == 0
+
     # Verify DB client called with correct deletion entries
     original_entries = db_client.get_file_entries_by_file_keys(
         [png_file_key, f"{dummy_folder_name}/{png_file_key}"]
     )  # Original entries
     assert len(original_entries) == 2  # didn't delete original
 
+    destination_keys = [
+        f"{dummy_folder_name}/{dummy_folder_name}/{png_file_key}",
+        f"{dummy_folder_name}/{dummy_folder_name}/{dummy_folder_name}/{png_file_key}",
+    ]
+
     copied_entries = db_client.get_file_entries_by_file_keys(
-        [x.file_key for x in result]
+        destination_keys
     )  # New entries
     assert len(copied_entries) == 2
     assert all(
@@ -262,17 +267,15 @@ async def test_move_files(
     png_file_key = f"{uuid.uuid4()}.png"
 
     await io_handler.upload(
-        libression.entities.io.FileStreams(
+        libression.entities.io.FileStreamInfos(
             file_streams={
-                png_file_key: libression.entities.io.FileStream(
+                png_file_key: libression.entities.io.FileStreamInfo(
                     file_stream=io.BytesIO(minimal_image),
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
-                    file_byte_size=len(minimal_image),
                 ),
-                f"{dummy_folder_name}/{png_file_key}": libression.entities.io.FileStream(
+                f"{dummy_folder_name}/{png_file_key}": libression.entities.io.FileStreamInfo(
                     file_stream=io.BytesIO(minimal_image),  # fresh bytesIO copy
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
-                    file_byte_size=len(minimal_image),
                 ),
             }
         )
@@ -297,14 +300,23 @@ async def test_move_files(
         delete_source=True,  # Move
     )
 
+    # Assert
+    assert len([x for x in result if x.success]) == 2
+    assert len([x for x in result if x.error is not None]) == 0
+
     # Verify DB client called with correct deletion entries
     original_entries = db_client.get_file_entries_by_file_keys(
         [png_file_key, f"{dummy_folder_name}/{png_file_key}"]
     )  # Original entries
     assert len(original_entries) == 0  # deleted original
 
+    destination_keys = [
+        f"{dummy_folder_name}/{dummy_folder_name}/{png_file_key}",
+        f"{dummy_folder_name}/{dummy_folder_name}/{dummy_folder_name}/{png_file_key}",
+    ]
+
     copied_entries = db_client.get_file_entries_by_file_keys(
-        [x.file_key for x in result]
+        destination_keys
     )  # New entries
     assert len(copied_entries) == 2
     assert all(
@@ -328,21 +340,29 @@ async def test_move_files(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "io_handler_fixture_name, minimal_image, has_data_in_io, has_cache_in_io",
+    "io_handler_fixture_name, delete_source, minimal_image, has_data_in_io, has_cache_in_io, original_count,success_count, overlap_file_entity_uuid_count",
     [
-        ("docker_webdav_io_handler", "png", True, False),
-        ("docker_webdav_io_handler", "png", False, True),
-        ("docker_webdav_io_handler", "png", False, False),
+        # 1 good entry + the following (problematic)
+        ("docker_webdav_io_handler", True, "png", True, False, 0, 1 + 1, 2),  # MOVE
+        ("docker_webdav_io_handler", True, "png", False, True, 0, 1, 1),
+        ("docker_webdav_io_handler", True, "png", False, False, 0, 1, 1),
+        ("docker_webdav_io_handler", False, "png", True, False, 2, 1 + 1, 0),  # COPY
+        ("docker_webdav_io_handler", False, "png", False, True, 1, 1, 0),
+        ("docker_webdav_io_handler", False, "png", False, False, 1, 1, 0),
     ],
     indirect=["minimal_image"],
 )
-async def test_move_files_with_missing_files(
+async def test_copy_files_with_missing_files(
     db_client,
     io_handler_fixture_name,
     request: pytest.FixtureRequest,
     minimal_image,
+    delete_source,
     has_data_in_io,
     has_cache_in_io,
+    original_count,
+    success_count,
+    overlap_file_entity_uuid_count,
     dummy_folder_name,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
@@ -358,17 +378,122 @@ async def test_move_files_with_missing_files(
     missing_files_key = f"{dummy_folder_name}/{uuid.uuid4()}_missing_files.png"
 
     await io_handler.upload(
-        libression.entities.io.FileStreams(
+        libression.entities.io.FileStreamInfos(
             file_streams={
-                png_file_key: libression.entities.io.FileStream(
+                png_file_key: libression.entities.io.FileStreamInfo(
                     file_stream=io.BytesIO(minimal_image),
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
-                    file_byte_size=len(minimal_image),
                 ),
-                missing_files_key: libression.entities.io.FileStream(
+                missing_files_key: libression.entities.io.FileStreamInfo(
                     file_stream=io.BytesIO(minimal_image),  # fresh bytesIO copy
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
-                    file_byte_size=len(minimal_image),
+                ),
+            }
+        )
+    )
+
+    original_files_info = await media_vault.get_files_info(
+        [png_file_key, missing_files_key]
+    )  # render/register to db
+
+    # delete from io (without updating db) ... like external action
+    if not has_data_in_io:
+        await media_vault.data_io_handler.delete([original_files_info[1].file_key])
+    if not has_cache_in_io:
+        await media_vault.cache_io_handler.delete(
+            [original_files_info[1].thumbnail_key or ""]  # "" just to shut lint up
+        )
+
+    # Act
+    result = await media_vault.copy(
+        [
+            libression.entities.io.FileKeyMapping(
+                source_key=png_file_key,
+                destination_key=f"{dummy_folder_name}/{png_file_key}",
+            ),
+            libression.entities.io.FileKeyMapping(
+                source_key=missing_files_key,
+                destination_key=f"{dummy_folder_name}/{missing_files_key}",
+            ),
+        ],
+        delete_source=delete_source,
+    )
+
+    # Assert
+    assert len([x for x in result if x.success]) == success_count
+    assert len([x for x in result if x.error is not None]) == 2 - success_count
+
+    # Verify DB
+    original_entries = db_client.get_file_entries_by_file_keys(
+        [png_file_key, missing_files_key]
+    )  # Original entries
+    assert len(original_entries) == original_count
+
+    copied_entries = db_client.get_file_entries_by_file_keys(
+        [
+            f"{dummy_folder_name}/{png_file_key}",  # new good entry
+            f"{dummy_folder_name}/{missing_files_key}",  # new problematic entry
+        ]
+    )  # New entries
+    assert len(copied_entries) == success_count
+    assert all(x.thumbnail_key is not None for x in copied_entries)
+    # New file_entity_uuid created (new copies)
+    assert (
+        len(
+            set([x.file_entity_uuid for x in original_files_info]).intersection(
+                set([x.file_entity_uuid for x in copied_entries])
+            )
+        )
+        == overlap_file_entity_uuid_count  # successfully moved files have same file_entity_uuid (failed not in list)
+    )
+
+    # Teardown
+    await media_vault.delete(copied_entries)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "io_handler_fixture_name, minimal_image, has_data_in_io, has_cache_in_io, success_count",
+    [
+        # 1 good entry + the following (problematic)
+        ("docker_webdav_io_handler", "png", True, False, 1 + 1),
+        ("docker_webdav_io_handler", "png", False, True, 1),
+        ("docker_webdav_io_handler", "png", False, False, 1),
+    ],
+    indirect=["minimal_image"],
+)
+async def test_move_copy_with_missing_files(
+    db_client,
+    io_handler_fixture_name,
+    request: pytest.FixtureRequest,
+    minimal_image,
+    has_data_in_io,
+    has_cache_in_io,
+    dummy_folder_name,
+    success_count,
+):
+    io_handler = request.getfixturevalue(io_handler_fixture_name)
+    media_vault = MediaVault(
+        data_io_handler=io_handler,
+        cache_io_handler=io_handler,
+        db_client=db_client,
+        thumbnail_width_in_pixels=200,
+        chunk_byte_size=8192,
+    )
+
+    png_file_key = f"{dummy_folder_name}/{uuid.uuid4()}.png"
+    missing_files_key = f"{dummy_folder_name}/{uuid.uuid4()}_missing_files.png"
+
+    await io_handler.upload(
+        libression.entities.io.FileStreamInfos(
+            file_streams={
+                png_file_key: libression.entities.io.FileStreamInfo(
+                    file_stream=io.BytesIO(minimal_image),
+                    mime_type=libression.entities.media.SupportedMimeType.PNG,
+                ),
+                missing_files_key: libression.entities.io.FileStreamInfo(
+                    file_stream=io.BytesIO(minimal_image),  # fresh bytesIO copy
+                    mime_type=libression.entities.media.SupportedMimeType.PNG,
                 ),
             }
         )
@@ -401,6 +526,10 @@ async def test_move_files_with_missing_files(
         delete_source=True,  # Move
     )
 
+    # Assert
+    assert len([x for x in result if x.success]) == success_count
+    assert len([x for x in result if x.error is not None]) == 2 - success_count
+
     # Verify DB client called with correct deletion entries
     original_entries = db_client.get_file_entries_by_file_keys(
         [png_file_key, missing_files_key]
@@ -408,9 +537,12 @@ async def test_move_files_with_missing_files(
     assert len(original_entries) == 0  # deleted original
 
     copied_entries = db_client.get_file_entries_by_file_keys(
-        [x.file_key for x in result]
+        [
+            f"{dummy_folder_name}/{png_file_key}",
+            f"{dummy_folder_name}/{missing_files_key}",
+        ]
     )  # New entries
-    assert len(copied_entries) == 1
+    assert len(copied_entries) == success_count
     assert all(
         x.action_type == libression.entities.db.DBFileAction.MOVE
         for x in copied_entries
@@ -423,7 +555,7 @@ async def test_move_files_with_missing_files(
                 set([x.file_entity_uuid for x in copied_entries])
             )
         )
-        == 2
+        == success_count  # successfully moved files have same file_entity_uuid (failed not in list)
     )
 
     # Teardown
@@ -458,17 +590,15 @@ async def test_get_presigned_urls(
     png_file_key = f"{uuid.uuid4()}.png"
 
     await io_handler.upload(
-        libression.entities.io.FileStreams(
+        libression.entities.io.FileStreamInfos(
             file_streams={
-                png_file_key: libression.entities.io.FileStream(
+                png_file_key: libression.entities.io.FileStreamInfo(
                     file_stream=io.BytesIO(minimal_image),
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
-                    file_byte_size=len(minimal_image),
                 ),
-                f"{dummy_folder_name}/{png_file_key}": libression.entities.io.FileStream(
+                f"{dummy_folder_name}/{png_file_key}": libression.entities.io.FileStreamInfo(
                     file_stream=io.BytesIO(minimal_image),  # fresh bytesIO copy
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
-                    file_byte_size=len(minimal_image),
                 ),
             }
         )
@@ -504,6 +634,78 @@ async def test_get_presigned_urls(
 
     assert all(x.content is not None for x in data_url_responses)
     assert all(x.content is not None for x in thumbnail_url_responses)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "io_handler_fixture_name, minimal_image",
+    [
+        ("docker_webdav_io_handler", "png"),
+    ],
+    indirect=["minimal_image"],
+)
+async def test_upload_media(
+    db_client,
+    io_handler_fixture_name,
+    request: pytest.FixtureRequest,
+    minimal_image,
+    dummy_folder_name,
+):
+    io_handler = request.getfixturevalue(io_handler_fixture_name)
+    media_vault = MediaVault(
+        data_io_handler=io_handler,
+        cache_io_handler=io_handler,
+        db_client=db_client,
+        thumbnail_width_in_pixels=200,
+        chunk_byte_size=8192,
+    )
+
+    # Prepare test files
+    upload_entries = [
+        libression.entities.base.UploadEntry(
+            filename="test1.png",
+            file_stream=io.BytesIO(minimal_image),
+        ),
+        libression.entities.base.UploadEntry(
+            filename="test2.png",
+            file_stream=io.BytesIO(minimal_image),
+        ),
+    ]
+
+    # Act
+    result = await media_vault.upload_media(
+        upload_entries=upload_entries,
+        target_dir_key=dummy_folder_name,
+    )
+
+    # Assert
+    assert len(result) == 2
+    for entry in result:
+        assert entry.file_key.startswith(f"{dummy_folder_name}/")
+        assert entry.thumbnail_key is not None
+        assert entry.thumbnail_mime_type == "image/jpeg"
+        assert entry.thumbnail_checksum is not None
+        assert entry.thumbnail_phash is not None
+        assert entry.action_type == libression.entities.db.DBFileAction.CREATE
+
+    # Verify files exist in storage
+    data_urls = media_vault.get_data_presigned_urls(
+        [entry.file_key for entry in result]
+    )
+    thumbnail_urls = media_vault.get_thumbnail_presigned_urls(
+        [entry.thumbnail_key for entry in result if entry.thumbnail_key is not None]
+    )
+
+    assert len(data_urls.urls) == len(thumbnail_urls.urls) == 2
+
+    # Verify URLs are accessible
+    for url in [*data_urls.urls.values(), *thumbnail_urls.urls.values()]:
+        response = httpx.get(url, verify=False)
+        assert response.status_code == 200
+        assert response.content is not None
+
+    # Cleanup
+    await media_vault.delete(result)
 
 
 # TODO: add:

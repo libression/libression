@@ -1,14 +1,15 @@
 import io
 import logging
 import concurrent.futures
+
 import libression.db.client
 import libression.entities.io
 import libression.thumbnail
-import libression.exceptions
 import libression.entities.media
 import typing
 import asyncio
 import httpx
+import libression.entities.base
 import libression.config
 
 logger = logging.getLogger(__name__)
@@ -148,15 +149,14 @@ class MediaVault:
         if (thumbnail_bytes := thumbnail_info.thumbnail) is None:
             raise ValueError("Thumbnail should exist at this point...")
 
-        thumbnail_file_stream = libression.entities.io.FileStream(
+        thumbnail_file_stream = libression.entities.io.FileStreamInfo(
             file_stream=io.BytesIO(thumbnail_bytes),
-            file_byte_size=len(thumbnail_bytes),
             mime_type=thumbnail_file.thumbnail_mime_type,
         )
 
         # Save thumbnail
         await self.cache_io_handler.upload(
-            libression.entities.io.FileStreams(
+            libression.entities.io.FileStreamInfos(
                 {thumbnail_file.key: thumbnail_file_stream}
             ),
             chunk_byte_size=self.chunk_byte_size,
@@ -318,7 +318,7 @@ class MediaVault:
     async def delete(
         self,
         file_entries: list[libression.entities.db.DBFileEntry],
-    ) -> list[libression.entities.io.IOResponse]:
+    ) -> list[libression.entities.base.FileActionResponse]:
         data_delete_responses = await self.data_io_handler.delete(
             [file_entry.file_key for file_entry in file_entries if file_entry.file_key],
         )
@@ -386,7 +386,7 @@ class MediaVault:
         self,
         file_key_mappings: list[libression.entities.io.FileKeyMapping],
         delete_source: bool,
-    ) -> list[libression.entities.db.DBFileEntry]:
+    ) -> list[libression.entities.base.FileActionResponse]:
         """
         Assume:
         - No duplications in file names
@@ -413,103 +413,128 @@ class MediaVault:
         )
 
         # Copy data
-        try:
-            await self.data_io_handler.copy(
-                sorted_file_key_mappings,
-                delete_source=delete_source,
-            )
-        except libression.exceptions.MissingSourceException as e:
-            raise e
+        data_copy_responses = await self.data_io_handler.copy(
+            sorted_file_key_mappings,
+            delete_source=delete_source,
+        )
 
         await self.cache_io_handler.copy(
             [x[1] for x in sorted_cache_key_mappings if x[1] is not None],
             delete_source=delete_source,
+        )  # currently ignore ...
+
+        # Register db
+        file_actions_to_register = []
+
+        for file_entry, file_key_mapping, cache_key_mapping, data_copy_response in zip(
+            sorted_existing_db_entries,
+            sorted_file_key_mappings,
+            sorted_cache_key_mappings,
+            data_copy_responses,
+        ):  # all in same order (file_key as sort key))
+            if not data_copy_response.success:
+                row = libression.entities.db.existing_db_file_entry(
+                    file_key=file_entry.file_key,
+                    file_entity_uuid=file_entry.file_entity_uuid,
+                    action_type=libression.entities.db.DBFileAction.MISSING,
+                )
+                file_actions_to_register.append(row)
+            else:
+                new_thumbnail_key: str | None = None
+                new_thumbnail_file_key_mapping = cache_key_mapping[1]
+
+                if isinstance(
+                    new_thumbnail_file_key_mapping,
+                    libression.entities.io.FileKeyMapping,
+                ):
+                    new_thumbnail_key = new_thumbnail_file_key_mapping.destination_key
+
+                if delete_source:  # MOVE
+                    row = libression.entities.db.existing_db_file_entry(
+                        # New location
+                        file_key=file_key_mapping.destination_key,
+                        thumbnail_key=new_thumbnail_key,
+                        action_type=libression.entities.db.DBFileAction.MOVE,
+                        # Preserve the rest
+                        file_entity_uuid=file_entry.file_entity_uuid,
+                        thumbnail_mime_type=file_entry.thumbnail_mime_type,
+                        thumbnail_checksum=file_entry.thumbnail_checksum,
+                        thumbnail_phash=file_entry.thumbnail_phash,
+                        mime_type=file_entry.mime_type,
+                        tags=file_entry.tags,
+                    )
+                    file_actions_to_register.append(row)
+                else:  # COPY
+                    row = libression.entities.db.new_db_file_entry(
+                        file_key=file_key_mapping.destination_key,  # new location
+                        thumbnail_key=new_thumbnail_key,
+                        thumbnail_mime_type=file_entry.thumbnail_mime_type,
+                        thumbnail_checksum=file_entry.thumbnail_checksum,
+                        thumbnail_phash=file_entry.thumbnail_phash,
+                        mime_type=file_entry.mime_type,
+                        tags=file_entry.tags,
+                    )
+                    file_actions_to_register.append(row)
+
+            registered_entries = self.db_client.register_file_action(
+                file_actions_to_register
+            )
+
+            if not delete_source:  # COPY, so new file_entity_uuids need tags copied
+                self.db_client.register_file_tags(
+                    registered_entries
+                )  # register tags for new file_entity_uuid
+
+        return data_copy_responses
+
+    async def upload_media(
+        self,
+        upload_entries: list[libression.entities.base.UploadEntry],
+        target_dir_key: str,
+        presigned_url_expires_in_seconds: int = 60 * 60 * 24 * 30,
+    ) -> list[libression.entities.db.DBFileEntry]:
+        """
+        Uploads media files to a target directory, generates thumbnails, and registers them in the DB.
+
+        Args:
+            upload_entries: List of UploadEntry objects containing file streams and original filenames
+            target_dir_key: Directory key where files should be uploaded
+            presigned_url_expires_in_seconds: How long the returned URLs should be valid
+
+        Returns:
+            List of DBFileEntry objects for the uploaded files
+        """
+        # Normalize directory key
+        if not target_dir_key:  # root, no slash needed
+            normalized_dir_key = ""
+        else:
+            normalized_dir_key = f"{target_dir_key.rstrip('/')}/"  # add trailing slash
+
+        # Create file streams with full keys
+        file_stream_infos = libression.entities.io.FileStreamInfos(
+            {
+                f"{normalized_dir_key}{entry.filename}": libression.entities.io.FileStreamInfo(
+                    file_stream=entry.file_stream,
+                    mime_type=libression.entities.media.SupportedMimeType.best_guess(
+                        filename=entry.filename,
+                        given_mime_type_str=None,
+                    ),
+                )
+                for entry in upload_entries
+            }
         )
 
-        # Register file actions
-        if delete_source:
-            moved_file_action_entries = []
+        # Upload files to storage
+        await self.data_io_handler.upload(
+            file_stream_infos,
+            chunk_byte_size=self.chunk_byte_size,
+        )
 
-            for file_entry, file_key_mapping, cache_key_mapping in zip(
-                sorted_existing_db_entries,
-                sorted_file_key_mappings,
-                sorted_cache_key_mappings,
-            ):
-                moved_thumbnail_key: str | None = None
-                moved_thumbnail_file_key_mapping = cache_key_mapping[1]
-                if isinstance(
-                    moved_thumbnail_file_key_mapping,
-                    libression.entities.io.FileKeyMapping,
-                ):
-                    moved_thumbnail_key = (
-                        moved_thumbnail_file_key_mapping.destination_key
-                    )
-
-                moved_file_action_entries.append(
-                    libression.entities.db.existing_db_file_entry(
-                        file_key=file_key_mapping.destination_key,  # new location
-                        file_entity_uuid=file_entry.file_entity_uuid,
-                        action_type=libression.entities.db.DBFileAction.MOVE,
-                        thumbnail_key=moved_thumbnail_key,
-                        thumbnail_mime_type=file_entry.thumbnail_mime_type,
-                        thumbnail_checksum=file_entry.thumbnail_checksum,
-                        thumbnail_phash=file_entry.thumbnail_phash,
-                        mime_type=file_entry.mime_type,
-                        tags=file_entry.tags,
-                    )
-                )
-            registered_entries = self.db_client.register_file_action(
-                moved_file_action_entries
-            )  # No tags needed as same file_entity_uuid
-
-        else:  # new file_entity_uuid but retain tags for new copy!
-            copied_file_action_entries = []
-
-            for file_entry, file_key_mapping, cache_key_mapping in zip(
-                sorted_existing_db_entries,
-                sorted_file_key_mappings,
-                sorted_cache_key_mappings,
-            ):
-                copied_thumbnail_key: str | None = None
-                copied_thumbnail_file_key_mapping = cache_key_mapping[1]
-                if isinstance(
-                    copied_thumbnail_file_key_mapping,
-                    libression.entities.io.FileKeyMapping,
-                ):
-                    copied_thumbnail_key = (
-                        copied_thumbnail_file_key_mapping.destination_key
-                    )
-
-                copied_file_action_entries.append(
-                    libression.entities.db.new_db_file_entry(
-                        file_key=file_key_mapping.destination_key,  # new location
-                        thumbnail_key=copied_thumbnail_key,
-                        thumbnail_mime_type=file_entry.thumbnail_mime_type,
-                        thumbnail_checksum=file_entry.thumbnail_checksum,
-                        thumbnail_phash=file_entry.thumbnail_phash,
-                        mime_type=file_entry.mime_type,
-                        tags=file_entry.tags,
-                    )
-                )
-
-            registered_entries = self.db_client.register_file_action(
-                copied_file_action_entries
-            )
-            self.db_client.register_file_tags(
-                registered_entries
-            )  # register tags for new file_entity_uuid
-
-        return registered_entries
-
-    # TODO: FINISH!!! + ADD TESTS
-    def upload_media(self) -> None:
-        """
-        saves data, cache and DB entries
-        Needs to allow specification of file keys
-        upload to data_io_handler
-        return get_thumbnail_presigned_urls
-        """
-        raise NotImplementedError("TODO")
+        # Generate thumbnails and register in DB
+        return await self.get_files_info(
+            file_keys=list(file_stream_infos.file_streams.keys()),
+            presigned_url_expires_in_seconds=presigned_url_expires_in_seconds,
+        )
 
     def search_by_tags(self):
         raise NotImplementedError("TODO")

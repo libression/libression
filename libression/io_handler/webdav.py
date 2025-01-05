@@ -10,6 +10,7 @@ import typing
 import bs4
 import httpx
 
+import libression.entities.base
 import libression.entities.io
 import libression.config
 
@@ -118,10 +119,10 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
     async def _upload_single(
         self,
         file_key: str,
-        file_stream: libression.entities.io.FileStream,
+        file_stream: libression.entities.io.FileStreamInfo,
         opened_client: httpx.AsyncClient,
         chunk_byte_size: int = libression.config.DEFAULT_CHUNK_BYTE_SIZE,
-    ) -> libression.entities.io.IOResponse:
+    ) -> libression.entities.base.FileActionResponse:
         """
         Upload a single stream (in chunks)
         Let caller manage (open/close) the client context
@@ -168,7 +169,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             success = False
             error = str(e)
 
-        return libression.entities.io.IOResponse(
+        return libression.entities.base.FileActionResponse(
             file_key=file_key,
             success=success,
             error=error,
@@ -176,9 +177,9 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
 
     async def upload(
         self,
-        file_streams: libression.entities.io.FileStreams,
+        file_streams: libression.entities.io.FileStreamInfos,
         chunk_byte_size: int = libression.config.DEFAULT_CHUNK_BYTE_SIZE,
-    ) -> list[libression.entities.io.IOResponse]:
+    ) -> list[libression.entities.base.FileActionResponse]:
         """
         Upload multiple streams (in chunks)
         """
@@ -214,7 +215,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         self,
         file_key: str,
         opened_client: httpx.AsyncClient,
-    ) -> libression.entities.io.IOResponse:
+    ) -> libression.entities.base.FileActionResponse:
         """
         Let caller manage (open/close) the client context
         Not meant to be used directly (thus private)
@@ -234,8 +235,9 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         except httpx.HTTPStatusError as e:
             success = False
             error = str(e)
+            logger.error(f"Failed to delete file {file_key}: {error}")
 
-        return libression.entities.io.IOResponse(
+        return libression.entities.base.FileActionResponse(
             file_key=file_key,
             success=success,
             error=error,
@@ -244,7 +246,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
     async def delete(
         self,
         file_keys: typing.Sequence[str],
-    ) -> list[libression.entities.io.IOResponse]:
+    ) -> list[libression.entities.base.FileActionResponse]:
         unique_file_keys = list(set(file_keys))
 
         async with self._create_httpx_client() as opened_client:
@@ -437,7 +439,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         opened_client: httpx.AsyncClient,
         delete_source: bool,
         overwrite_existing: bool,
-    ) -> libression.entities.io.IOResponse:
+    ) -> libression.entities.base.FileActionResponse:
         """Use WebDAV COPY/MOVE for efficient file operations"""
         method = "MOVE" if delete_source else "COPY"
 
@@ -469,7 +471,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             success = False
             error = str(e)
 
-        return libression.entities.io.IOResponse(
+        return libression.entities.base.FileActionResponse(
             file_key=file_key_mapping.source_key,
             success=success,
             error=error,
@@ -480,7 +482,9 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         file_key_mappings: typing.Sequence[libression.entities.io.FileKeyMapping],
         delete_source: bool,  # False: copy, True: paste
         overwrite_existing: bool = True,
-    ) -> list[libression.entities.io.IOResponse]:
+    ) -> list[libression.entities.base.FileActionResponse]:
+        libression.entities.io.FileKeyMapping.validate_mappings(file_key_mappings)
+
         async with self._create_httpx_client() as opened_client:
             copy_tasks = [
                 self._copy_single(

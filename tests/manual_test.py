@@ -41,15 +41,13 @@ async def manual_test_webdav():
     )
 
     # Test upload
-    test_file_stream1 = libression.entities.io.FileStream(
+    test_file_stream1 = libression.entities.io.FileStreamInfo(
         file_stream=io.BytesIO(TEST_DATA),
-        file_byte_size=len(TEST_DATA),
     )
-    test_file_stream2 = libression.entities.io.FileStream(
+    test_file_stream2 = libression.entities.io.FileStreamInfo(
         file_stream=io.BytesIO(TEST_DATA),
-        file_byte_size=len(TEST_DATA),
     )
-    test_file_streams = libression.entities.io.FileStreams(
+    test_file_streams = libression.entities.io.FileStreamInfos(
         file_streams={
             FILE_KEY: test_file_stream1,
             f"{FOLDER_NAME}/{FILE_KEY}": test_file_stream2,

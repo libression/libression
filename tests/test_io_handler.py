@@ -1,6 +1,6 @@
 import pytest
 import io
-from libression.entities.io import FileStreams, FileStream, FileKeyMapping
+from libression.entities.io import FileStreamInfos, FileStreamInfo, FileKeyMapping
 
 
 TEST_DATA = b"Hello Test!"
@@ -8,9 +8,8 @@ TEST_DATA = b"Hello Test!"
 
 @pytest.fixture
 def test_file_stream():
-    return FileStream(
+    return FileStreamInfo(
         file_stream=io.BytesIO(TEST_DATA),
-        file_byte_size=len(TEST_DATA),
     )
 
 
@@ -27,7 +26,7 @@ async def test_upload_and_list(
     try:
         # Test upload
         await io_handler.upload(
-            FileStreams(file_streams={dummy_file_key: test_file_stream})
+            FileStreamInfos(file_streams={dummy_file_key: test_file_stream})
         )
 
         # Verify upload
@@ -53,7 +52,7 @@ async def test_nested_upload(
     nested_key = f"{dummy_folder_name}/{dummy_file_key}"
     try:
         await io_handler.upload(
-            FileStreams(file_streams={nested_key: test_file_stream})
+            FileStreamInfos(file_streams={nested_key: test_file_stream})
         )
 
         objects = await io_handler.list_objects(dummy_folder_name)
@@ -76,7 +75,7 @@ async def test_get_readonly_urls(
     io_handler = request.getfixturevalue(io_handler_fixture_name)
     # Upload file first
     await io_handler.upload(
-        FileStreams(file_streams={dummy_file_key: test_file_stream})
+        FileStreamInfos(file_streams={dummy_file_key: test_file_stream})
     )
 
     # Test URL generation
@@ -96,7 +95,7 @@ async def test_delete(
     io_handler = request.getfixturevalue(io_handler_fixture_name)
     # Upload file first
     await io_handler.upload(
-        FileStreams(file_streams={dummy_file_key: test_file_stream})
+        FileStreamInfos(file_streams={dummy_file_key: test_file_stream})
     )
 
     # Test delete
@@ -129,7 +128,7 @@ async def test_copy(
     try:
         # Upload initial file
         await io_handler.upload(
-            FileStreams(file_streams={dummy_file_key: test_file_stream})
+            FileStreamInfos(file_streams={dummy_file_key: test_file_stream})
         )
 
         # Test copy
@@ -165,7 +164,7 @@ async def test_move(
     try:
         # Upload initial file
         await io_handler.upload(
-            FileStreams(file_streams={dummy_file_key: test_file_stream})
+            FileStreamInfos(file_streams={dummy_file_key: test_file_stream})
         )
 
         # Test move
@@ -196,7 +195,7 @@ async def test_copy_with_overwrite(
     try:
         # Upload initial file
         await io_handler.upload(
-            FileStreams(file_streams={dummy_file_key: test_file_stream})
+            FileStreamInfos(file_streams={dummy_file_key: test_file_stream})
         )
 
         # First copy should succeed
@@ -205,7 +204,7 @@ async def test_copy_with_overwrite(
             delete_source=False,
             overwrite_existing=False,
         )
-        assert success_responses[0]["success"]
+        assert success_responses[0].success
 
         # Second copy with overwrite=False should fail
         success_responses = await io_handler.copy(
@@ -213,7 +212,7 @@ async def test_copy_with_overwrite(
             delete_source=False,
             overwrite_existing=False,
         )
-        assert not success_responses[0]["success"]
+        assert not success_responses[0].success
 
         # Second copy with overwrite=True should succeed
         success_2nd_responses = await io_handler.copy(
@@ -221,7 +220,7 @@ async def test_copy_with_overwrite(
             delete_source=False,
             overwrite_existing=True,
         )
-        assert success_2nd_responses[0]["success"]
+        assert success_2nd_responses[0].success
 
     finally:
         # Cleanup
@@ -241,7 +240,7 @@ async def test_move_with_overwrite(
     try:
         # Upload initial files
         await io_handler.upload(
-            FileStreams(
+            FileStreamInfos(
                 file_streams={
                     dummy_file_key: test_file_stream,
                     new_key: test_file_stream,  # Create destination file
@@ -255,7 +254,7 @@ async def test_move_with_overwrite(
             delete_source=True,
             overwrite_existing=False,
         )
-        assert not failed_responses[0]["success"]
+        assert not failed_responses[0].success
 
         # Move with overwrite=True should succeed
         success_responses = await io_handler.copy(
@@ -263,7 +262,7 @@ async def test_move_with_overwrite(
             delete_source=True,
             overwrite_existing=True,
         )
-        assert success_responses[0]["success"]
+        assert success_responses[0].success
 
         objects = await io_handler.list_objects()
         assert len([x for x in objects if x.absolute_path == dummy_file_key]) == 0
@@ -289,7 +288,7 @@ async def test_list_objects_with_nested_paths(
     try:
         # Upload both files
         await io_handler.upload(
-            FileStreams(
+            FileStreamInfos(
                 file_streams={root_key: test_file_stream, nested_key: test_file_stream}
             )
         )
@@ -336,7 +335,7 @@ async def test_list_objects_single_vs_recursive(
     try:
         # Upload files in different directory levels
         await io_handler.upload(
-            FileStreams(
+            FileStreamInfos(
                 file_streams={
                     root_key: test_file_stream,
                     nested_key: test_file_stream,
@@ -455,7 +454,7 @@ async def test_list_objects_max_depth(
 
     try:
         # Upload all files
-        await io_handler.upload(FileStreams(file_streams=nested_files))
+        await io_handler.upload(FileStreamInfos(file_streams=nested_files))
 
         # Test with max_depth=2
         objects_depth2 = await io_handler.list_objects(
