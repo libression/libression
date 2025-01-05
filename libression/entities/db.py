@@ -41,6 +41,9 @@ class DBFileAction(enum.Enum):
     MOVE = "MOVE"
     DELETE = "DELETE"
     UPDATE = "UPDATE"
+    MISSING = (
+        "MISSING"  # Treat as DELETE-ish (but different, so we can tell them apart)
+    )
 
 
 class DBFileEntry(typing.NamedTuple):

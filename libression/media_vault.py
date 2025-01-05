@@ -4,6 +4,7 @@ import concurrent.futures
 import libression.db.client
 import libression.entities.io
 import libression.thumbnail
+import libression.exceptions
 import libression.entities.media
 import typing
 import asyncio
@@ -317,19 +318,17 @@ class MediaVault:
     async def delete(
         self,
         file_entries: list[libression.entities.db.DBFileEntry],
-        raise_on_error: bool = True,
-    ) -> None:
-        await self.data_io_handler.delete(
+    ) -> list[libression.entities.io.IOResponse]:
+        data_delete_responses = await self.data_io_handler.delete(
             [file_entry.file_key for file_entry in file_entries if file_entry.file_key],
-            raise_on_error=raise_on_error,
         )
+
         await self.cache_io_handler.delete(
             [
                 file_entry.thumbnail_key
                 for file_entry in file_entries
                 if file_entry.thumbnail_key
             ],
-            raise_on_error=False,  # allow missing thumbnails
         )
 
         deletion_db_entries = [
@@ -341,6 +340,8 @@ class MediaVault:
             for file_entry in file_entries
         ]
         self.db_client.register_file_action(deletion_db_entries)
+
+        return data_delete_responses
 
     def _get_cache_key_mappings(
         self,
@@ -412,10 +413,13 @@ class MediaVault:
         )
 
         # Copy data
-        await self.data_io_handler.copy(
-            sorted_file_key_mappings,
-            delete_source=delete_source,
-        )
+        try:
+            await self.data_io_handler.copy(
+                sorted_file_key_mappings,
+                delete_source=delete_source,
+            )
+        except libression.exceptions.MissingSourceException as e:
+            raise e
 
         await self.cache_io_handler.copy(
             [x[1] for x in sorted_cache_key_mappings if x[1] is not None],
@@ -508,9 +512,9 @@ class MediaVault:
         raise NotImplementedError("TODO")
 
     def search_by_tags(self):
-        pass
+        raise NotImplementedError("TODO")
 
     def edit_tags(self):
-        pass
+        raise NotImplementedError("TODO")
 
     # TODO: cover for errors + account for when external action (deletion/moves) how we should handle...

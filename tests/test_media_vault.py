@@ -74,7 +74,7 @@ async def test_get_files_info_existing_thumbnails(
     assert result[0].thumbnail_phash is not None
 
     # Teardown
-    await media_vault.delete([result[0]], raise_on_error=True)
+    await media_vault.delete([result[0]])
 
 
 @pytest.mark.asyncio
@@ -231,8 +231,8 @@ async def test_copy_files(
     )
 
     # Teardown
-    await media_vault.delete(copied_entries, raise_on_error=True)
-    await media_vault.delete(original_entries, raise_on_error=True)
+    await media_vault.delete(copied_entries)
+    await media_vault.delete(original_entries)
 
 
 @pytest.mark.asyncio
@@ -323,10 +323,111 @@ async def test_move_files(
     )
 
     # Teardown
-    await media_vault.delete(copied_entries, raise_on_error=True)
+    await media_vault.delete(copied_entries)
 
 
-#### IGNORE BELOW
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "io_handler_fixture_name, minimal_image, has_data_in_io, has_cache_in_io",
+    [
+        ("docker_webdav_io_handler", "png", True, False),
+        ("docker_webdav_io_handler", "png", False, True),
+        ("docker_webdav_io_handler", "png", False, False),
+    ],
+    indirect=["minimal_image"],
+)
+async def test_move_files_with_missing_files(
+    db_client,
+    io_handler_fixture_name,
+    request: pytest.FixtureRequest,
+    minimal_image,
+    has_data_in_io,
+    has_cache_in_io,
+    dummy_folder_name,
+):
+    io_handler = request.getfixturevalue(io_handler_fixture_name)
+    media_vault = MediaVault(
+        data_io_handler=io_handler,
+        cache_io_handler=io_handler,
+        db_client=db_client,
+        thumbnail_width_in_pixels=200,
+        chunk_byte_size=8192,
+    )
+
+    png_file_key = f"{dummy_folder_name}/{uuid.uuid4()}.png"
+    missing_files_key = f"{dummy_folder_name}/{uuid.uuid4()}_missing_files.png"
+
+    await io_handler.upload(
+        libression.entities.io.FileStreams(
+            file_streams={
+                png_file_key: libression.entities.io.FileStream(
+                    file_stream=io.BytesIO(minimal_image),
+                    mime_type=libression.entities.media.SupportedMimeType.PNG,
+                    file_byte_size=len(minimal_image),
+                ),
+                missing_files_key: libression.entities.io.FileStream(
+                    file_stream=io.BytesIO(minimal_image),  # fresh bytesIO copy
+                    mime_type=libression.entities.media.SupportedMimeType.PNG,
+                    file_byte_size=len(minimal_image),
+                ),
+            }
+        )
+    )
+
+    original_files_info = await media_vault.get_files_info(
+        [png_file_key, missing_files_key]
+    )  # render/register to db
+
+    # delete from io (without updating db) ... like external action
+    if not has_data_in_io:
+        await media_vault.data_io_handler.delete([original_files_info[1].file_key])
+    if not has_cache_in_io:
+        await media_vault.cache_io_handler.delete(
+            [original_files_info[1].thumbnail_key or ""]  # "" just to shut lint up
+        )
+
+    # Act
+    result = await media_vault.copy(
+        [
+            libression.entities.io.FileKeyMapping(
+                source_key=png_file_key,
+                destination_key=f"{dummy_folder_name}/{png_file_key}",
+            ),
+            libression.entities.io.FileKeyMapping(
+                source_key=missing_files_key,
+                destination_key=f"{dummy_folder_name}/{missing_files_key}",
+            ),
+        ],
+        delete_source=True,  # Move
+    )
+
+    # Verify DB client called with correct deletion entries
+    original_entries = db_client.get_file_entries_by_file_keys(
+        [png_file_key, missing_files_key]
+    )  # Original entries
+    assert len(original_entries) == 0  # deleted original
+
+    copied_entries = db_client.get_file_entries_by_file_keys(
+        [x.file_key for x in result]
+    )  # New entries
+    assert len(copied_entries) == 1
+    assert all(
+        x.action_type == libression.entities.db.DBFileAction.MOVE
+        for x in copied_entries
+    )
+    assert all(x.thumbnail_key is not None for x in copied_entries)
+    # New file_entity_uuid created (new copies)
+    assert (
+        len(
+            set([x.file_entity_uuid for x in original_files_info]).intersection(
+                set([x.file_entity_uuid for x in copied_entries])
+            )
+        )
+        == 2
+    )
+
+    # Teardown
+    await media_vault.delete(copied_entries)
 
 
 @pytest.mark.asyncio

@@ -364,7 +364,7 @@ class DBClient:
                     SELECT *
                     FROM ranked_actions
                     WHERE action_rank = 1
-                    AND action_type != 'DELETE'  -- Exclude files whose latest action is DELETE
+                    AND action_type NOT IN ('DELETE', 'MISSING')  -- Exclude deleted/missing files
                     AND file_key IN ({})  -- Only return requested file_keys
                 ),
                 latest_tags AS (
@@ -447,7 +447,7 @@ class DBClient:
                     file_key,
                     MAX(action_created_at) as latest_action
                 FROM file_actions
-                WHERE action_type != 'DELETE'
+                WHERE action_type NOT IN ('DELETE', 'MISSING')
                 GROUP BY file_entity_uuid
             ),
             latest_tags AS (
@@ -649,7 +649,7 @@ class DBClient:
                 JOIN latest_states ls ON f.file_key = ls.file_key
                     AND f.action_created_at = ls.latest_at
                 CROSS JOIN target t
-                WHERE ls.action_type != 'DELETE'
+                WHERE ls.action_type NOT IN ('DELETE', 'MISSING')
                 AND (
                     ls.thumbnail_checksum = t.thumbnail_checksum
                     OR ls.thumbnail_phash = t.thumbnail_phash

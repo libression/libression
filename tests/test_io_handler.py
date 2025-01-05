@@ -37,7 +37,7 @@ async def test_upload_and_list(
         assert found_files[0].size == len(TEST_DATA)
     finally:
         # Cleanup: delete test file
-        await io_handler.delete([dummy_file_key], raise_on_error=False)
+        await io_handler.delete([dummy_file_key])
 
 
 @pytest.mark.asyncio
@@ -62,7 +62,7 @@ async def test_nested_upload(
         assert found_files[0].size == len(TEST_DATA)
     finally:
         # Cleanup: delete test file
-        await io_handler.delete([nested_key], raise_on_error=False)
+        await io_handler.delete([nested_key])
 
 
 @pytest.mark.asyncio
@@ -112,12 +112,7 @@ async def test_delete_missing_file(
     request: pytest.FixtureRequest,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
-    # Should not raise when raise_on_error is False
-    await io_handler.delete(["non_existent.txt"], raise_on_error=False)
-
-    # Should raise when raise_on_error is True
-    with pytest.raises(Exception):
-        await io_handler.delete(["non_existent.txt"], raise_on_error=True)
+    await io_handler.delete(["non_existent.txt"])  # should not raise
 
 
 @pytest.mark.asyncio
@@ -154,7 +149,7 @@ async def test_copy(
         assert dest_files[0].size == len(TEST_DATA)
     finally:
         # Cleanup: delete both source and destination files
-        await io_handler.delete([dummy_file_key, nested_key], raise_on_error=True)
+        await io_handler.delete([dummy_file_key, nested_key])
 
 
 @pytest.mark.asyncio
@@ -184,7 +179,7 @@ async def test_move(
         assert len([x for x in objects if x.absolute_path == new_key]) == 1
     finally:
         # Cleanup
-        await io_handler.delete([new_key], raise_on_error=True)
+        await io_handler.delete([new_key])
 
 
 @pytest.mark.asyncio
@@ -205,30 +200,32 @@ async def test_copy_with_overwrite(
         )
 
         # First copy should succeed
-        await io_handler.copy(
+        success_responses = await io_handler.copy(
             [FileKeyMapping(source_key=dummy_file_key, destination_key=nested_key)],
             delete_source=False,
             overwrite_existing=False,
         )
+        assert success_responses[0]["success"]
 
         # Second copy with overwrite=False should fail
-        with pytest.raises(Exception):  # or more specific exception
-            await io_handler.copy(
-                [FileKeyMapping(source_key=dummy_file_key, destination_key=nested_key)],
-                delete_source=False,
-                overwrite_existing=False,
-            )
+        success_responses = await io_handler.copy(
+            [FileKeyMapping(source_key=dummy_file_key, destination_key=nested_key)],
+            delete_source=False,
+            overwrite_existing=False,
+        )
+        assert not success_responses[0]["success"]
 
         # Second copy with overwrite=True should succeed
-        await io_handler.copy(
+        success_2nd_responses = await io_handler.copy(
             [FileKeyMapping(source_key=dummy_file_key, destination_key=nested_key)],
             delete_source=False,
             overwrite_existing=True,
         )
+        assert success_2nd_responses[0]["success"]
 
     finally:
         # Cleanup
-        await io_handler.delete([dummy_file_key, nested_key], raise_on_error=True)
+        await io_handler.delete([dummy_file_key, nested_key])
 
 
 @pytest.mark.asyncio
@@ -253,19 +250,20 @@ async def test_move_with_overwrite(
         )
 
         # Move with overwrite=False should fail
-        with pytest.raises(Exception):
-            await io_handler.copy(
-                [FileKeyMapping(source_key=dummy_file_key, destination_key=new_key)],
-                delete_source=True,
-                overwrite_existing=False,
-            )
+        failed_responses = await io_handler.copy(
+            [FileKeyMapping(source_key=dummy_file_key, destination_key=new_key)],
+            delete_source=True,
+            overwrite_existing=False,
+        )
+        assert not failed_responses[0]["success"]
 
         # Move with overwrite=True should succeed
-        await io_handler.copy(
+        success_responses = await io_handler.copy(
             [FileKeyMapping(source_key=dummy_file_key, destination_key=new_key)],
             delete_source=True,
             overwrite_existing=True,
         )
+        assert success_responses[0]["success"]
 
         objects = await io_handler.list_objects()
         assert len([x for x in objects if x.absolute_path == dummy_file_key]) == 0
@@ -273,7 +271,7 @@ async def test_move_with_overwrite(
 
     finally:
         # Cleanup
-        await io_handler.delete([new_key], raise_on_error=True)
+        await io_handler.delete([new_key])
 
 
 @pytest.mark.asyncio
@@ -318,7 +316,7 @@ async def test_list_objects_with_nested_paths(
         ), f"Nested file not found in folder: {[x.absolute_path for x in folder_objects]}"
 
     finally:
-        await io_handler.delete([root_key, nested_key], raise_on_error=False)
+        await io_handler.delete([root_key, nested_key])
 
 
 @pytest.mark.asyncio
@@ -422,7 +420,7 @@ async def test_list_objects_single_vs_recursive(
 
     finally:
         await io_handler.delete(
-            [root_key, nested_key, nested_subfolder_key], raise_on_error=True
+            [root_key, nested_key, nested_subfolder_key],
         )
 
 
@@ -505,4 +503,4 @@ async def test_list_objects_max_depth(
 
     finally:
         # Clean up all files and directories
-        await io_handler.delete(list(nested_files.keys()), raise_on_error=False)
+        await io_handler.delete(list(nested_files.keys()))

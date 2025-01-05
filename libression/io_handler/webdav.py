@@ -121,7 +121,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         file_stream: libression.entities.io.FileStream,
         opened_client: httpx.AsyncClient,
         chunk_byte_size: int = libression.config.DEFAULT_CHUNK_BYTE_SIZE,
-    ) -> None:
+    ) -> libression.entities.io.IOResponse:
         """
         Upload a single stream (in chunks)
         Let caller manage (open/close) the client context
@@ -160,13 +160,25 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             headers=put_headers,
         )
 
-        response.raise_for_status()
+        try:
+            success = True
+            error: str | None = None
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            success = False
+            error = str(e)
+
+        return libression.entities.io.IOResponse(
+            file_key=file_key,
+            success=success,
+            error=error,
+        )
 
     async def upload(
         self,
         file_streams: libression.entities.io.FileStreams,
         chunk_byte_size: int = libression.config.DEFAULT_CHUNK_BYTE_SIZE,
-    ) -> None:
+    ) -> list[libression.entities.io.IOResponse]:
         """
         Upload multiple streams (in chunks)
         """
@@ -177,7 +189,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             ]
 
             # Execute all uploads concurrently
-            await asyncio.gather(*upload_tasks)
+            return await asyncio.gather(*upload_tasks)
 
     def get_readonly_urls(
         self,
@@ -202,8 +214,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         self,
         file_key: str,
         opened_client: httpx.AsyncClient,
-        raise_on_error: bool,
-    ) -> None:
+    ) -> libression.entities.io.IOResponse:
         """
         Let caller manage (open/close) the client context
         Not meant to be used directly (thus private)
@@ -216,22 +227,31 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             f"{self.base_url_with_path}/{file_key}",
             auth=self.auth,
         )
-        if raise_on_error:
+        try:
+            success = True
+            error: str | None = None
             response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            success = False
+            error = str(e)
+
+        return libression.entities.io.IOResponse(
+            file_key=file_key,
+            success=success,
+            error=error,
+        )
 
     async def delete(
         self,
         file_keys: typing.Sequence[str],
-        raise_on_error: bool = True,
-    ) -> None:
+    ) -> list[libression.entities.io.IOResponse]:
         unique_file_keys = list(set(file_keys))
 
         async with self._create_httpx_client() as opened_client:
             delete_tasks = [
-                self._delete_single(key, opened_client, raise_on_error)
-                for key in unique_file_keys
+                self._delete_single(key, opened_client) for key in unique_file_keys
             ]
-            await asyncio.gather(*delete_tasks)
+            return await asyncio.gather(*delete_tasks)
 
     async def _list_single_directory(
         self,
@@ -416,9 +436,8 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         file_key_mapping: libression.entities.io.FileKeyMapping,
         opened_client: httpx.AsyncClient,
         delete_source: bool,
-        allow_missing: bool,
         overwrite_existing: bool,
-    ) -> None:
+    ) -> libression.entities.io.IOResponse:
         """Use WebDAV COPY/MOVE for efficient file operations"""
         method = "MOVE" if delete_source else "COPY"
 
@@ -442,29 +461,34 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             method, source_url, auth=self.auth, headers=headers
         )
 
-        if response.status_code == 404:
-            if not allow_missing:
-                raise ValueError(f"File {file_key_mapping.source_key} not found")
-            return None
+        try:
+            success = True
+            error: str | None = None
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            success = False
+            error = str(e)
 
-        response.raise_for_status()
+        return libression.entities.io.IOResponse(
+            file_key=file_key_mapping.source_key,
+            success=success,
+            error=error,
+        )
 
     async def copy(
         self,
         file_key_mappings: typing.Sequence[libression.entities.io.FileKeyMapping],
         delete_source: bool,  # False: copy, True: paste
-        allow_missing: bool = False,
         overwrite_existing: bool = True,
-    ) -> None:
+    ) -> list[libression.entities.io.IOResponse]:
         async with self._create_httpx_client() as opened_client:
             copy_tasks = [
                 self._copy_single(
                     mapping,
                     opened_client,
                     delete_source,
-                    allow_missing,
                     overwrite_existing,
                 )
                 for mapping in file_key_mappings
             ]
-            await asyncio.gather(*copy_tasks)
+            return await asyncio.gather(*copy_tasks)

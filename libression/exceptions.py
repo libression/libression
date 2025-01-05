@@ -1,0 +1,2 @@
+class MissingSourceException(Exception):
+    pass

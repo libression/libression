@@ -39,6 +39,12 @@ class ListDirectoryObject:
     is_dir: bool
 
 
+class IOResponse(typing.TypedDict):
+    file_key: str
+    success: bool
+    error: str | None
+
+
 @typing.runtime_checkable
 class IOHandler(typing.Protocol):
     """
@@ -52,15 +58,13 @@ class IOHandler(typing.Protocol):
         self,
         file_streams: FileStreams,
         chunk_byte_size: int = libression.config.DEFAULT_CHUNK_BYTE_SIZE,
-    ) -> None: ...
+    ) -> list[IOResponse]: ...
 
     def get_readonly_urls(
         self, file_keys: typing.Sequence[str], expires_in_seconds: int
     ) -> GetUrlsResponse: ...
 
-    async def delete(
-        self, file_keys: typing.Sequence[str], raise_on_error: bool = True
-    ) -> None: ...
+    async def delete(self, file_keys: typing.Sequence[str]) -> list[IOResponse]: ...
 
     async def list_objects(
         self, dirpath: str, subfolder_contents: bool = False
@@ -72,6 +76,5 @@ class IOHandler(typing.Protocol):
         self,
         file_key_mappings: typing.Sequence[FileKeyMapping],
         delete_source: bool,  # False: copy, True: paste
-        allow_missing: bool = False,
         overwrite_existing: bool = True,
-    ) -> None: ...
+    ) -> list[IOResponse]: ...
