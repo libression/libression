@@ -1,6 +1,7 @@
 import pytest
 import uuid
 import io
+import base64
 import httpx
 import libression.entities.io
 import libression.entities.base
@@ -664,11 +665,11 @@ async def test_upload_media(
     upload_entries = [
         libression.entities.base.UploadEntry(
             filename="test1.png",
-            file_stream=io.BytesIO(minimal_image),
+            file_source=base64.b64encode(minimal_image).decode("utf-8"),
         ),
         libression.entities.base.UploadEntry(
             filename="test2.png",
-            file_stream=io.BytesIO(minimal_image),
+            file_source=base64.b64encode(minimal_image).decode("utf-8"),
         ),
     ]
 
@@ -676,6 +677,7 @@ async def test_upload_media(
     result = await media_vault.upload_media(
         upload_entries=upload_entries,
         target_dir_key=dummy_folder_name,
+        max_concurrent_uploads=10,
     )
 
     # Assert

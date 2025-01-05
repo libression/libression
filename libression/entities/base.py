@@ -8,5 +8,5 @@ class FileActionResponse(typing.NamedTuple):
 
 
 class UploadEntry(typing.NamedTuple):
-    file_stream: typing.BinaryIO
+    file_source: str  # base64 encoded file (later support url?)
     filename: str  # Original filename to use for the key

@@ -1,6 +1,7 @@
 import io
 import logging
 import concurrent.futures
+import base64
 
 import libression.db.client
 import libression.entities.io
@@ -491,48 +492,63 @@ class MediaVault:
         self,
         upload_entries: list[libression.entities.base.UploadEntry],
         target_dir_key: str,
+        max_concurrent_uploads: int,
         presigned_url_expires_in_seconds: int = 60 * 60 * 24 * 30,
     ) -> list[libression.entities.db.DBFileEntry]:
         """
         Uploads media files to a target directory, generates thumbnails, and registers them in the DB.
 
         Args:
-            upload_entries: List of UploadEntry objects containing file streams and original filenames
+            upload_entries: List of UploadEntry objects containing base64-encoded files and filenames
             target_dir_key: Directory key where files should be uploaded
             presigned_url_expires_in_seconds: How long the returned URLs should be valid
+            max_concurrent_uploads: Maximum number of concurrent file uploads
 
         Returns:
             List of DBFileEntry objects for the uploaded files
         """
         # Normalize directory key
-        if not target_dir_key:  # root, no slash needed
-            normalized_dir_key = ""
-        else:
-            normalized_dir_key = f"{target_dir_key.rstrip('/')}/"  # add trailing slash
+        normalized_dir_key = (
+            "" if not target_dir_key else f"{target_dir_key.rstrip('/')}/"
+        )
 
-        # Create file streams with full keys
-        file_stream_infos = libression.entities.io.FileStreamInfos(
-            {
-                f"{normalized_dir_key}{entry.filename}": libression.entities.io.FileStreamInfo(
-                    file_stream=entry.file_stream,
+        # Process files in batches to limit memory usage
+        all_file_keys = []
+
+        for batch in [
+            upload_entries[i : i + max_concurrent_uploads]
+            for i in range(0, len(upload_entries), max_concurrent_uploads)
+        ]:
+            # Create file streams for current batch
+            file_stream_infos = {}
+            for entry in batch:
+                file_key = f"{normalized_dir_key}{entry.filename}"
+                all_file_keys.append(file_key)
+
+                # Convert base64 to BytesIO without loading entire file into memory
+                file_stream = io.BytesIO(base64.b64decode(entry.file_source))
+
+                file_stream_infos[file_key] = libression.entities.io.FileStreamInfo(
+                    file_stream=file_stream,
                     mime_type=libression.entities.media.SupportedMimeType.best_guess(
                         filename=entry.filename,
                         given_mime_type_str=None,
                     ),
                 )
-                for entry in upload_entries
-            }
-        )
 
-        # Upload files to storage
-        await self.data_io_handler.upload(
-            file_stream_infos,
-            chunk_byte_size=self.chunk_byte_size,
-        )
+            # Upload current batch
+            await self.data_io_handler.upload(
+                libression.entities.io.FileStreamInfos(file_stream_infos),
+                chunk_byte_size=self.chunk_byte_size,
+            )
 
-        # Generate thumbnails and register in DB
+            # Clean up streams
+            for info in file_stream_infos.values():
+                info.file_stream.close()
+
+        # Generate thumbnails and register in DB for all uploaded files
         return await self.get_files_info(
-            file_keys=list(file_stream_infos.file_streams.keys()),
+            file_keys=all_file_keys,
             presigned_url_expires_in_seconds=presigned_url_expires_in_seconds,
         )
 
