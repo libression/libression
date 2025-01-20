@@ -11,6 +11,7 @@ WEBDAV_URL_PATH = os.environ.get("WEBDAV_URL_PATH", "dummy_photos")
 WEBDAV_PRESIGNED_URL_PATH = os.environ.get(
     "WEBDAV_PRESIGNED_URL_PATH", "readonly_dummy_photos"
 )
+WEBDAV_VERIFY_SSL = bool(os.environ.get("WEBDAV_VERIFY_SSL", "True").lower() == "true")
 
 WEBDAV_CACHE_URL_PATH = os.environ.get("WEBDAV_CACHE_URL_PATH", "dummy_photos_cache")
 WEBDAV_CACHE_PRESIGNED_URL_PATH = os.environ.get(
@@ -19,7 +20,7 @@ WEBDAV_CACHE_PRESIGNED_URL_PATH = os.environ.get(
 
 WEBDAV_USER = os.environ.get("WEBDAV_USER", "libression_user")
 WEBDAV_PASSWORD = os.environ.get("WEBDAV_PASSWORD", "libression_password")
-NGINX_SECURE_LINK_KEY = os.environ.get("NGINX_SECURE_LINK_KEY", "libression_secret_key")
+NGINX_SECURE_LINK_KEY = os.environ.get("NGINX_SECURE_LINK_KEY", "your_secure_link_key")
 
 # DB
 DB_PATH = os.environ.get("DB_PATH", "libression.db")

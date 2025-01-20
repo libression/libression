@@ -45,6 +45,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         password: str = libression.config.WEBDAV_PASSWORD,
         secret_key: str = libression.config.NGINX_SECURE_LINK_KEY,
         verify_ssl: bool = True,
+        **kwargs,
     ):
         """
         Given webdav setting:
@@ -192,6 +193,38 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             # Execute all uploads concurrently
             return await asyncio.gather(*upload_tasks)
 
+    def _presigned_url(
+        self,
+        expires_in_seconds: int,
+        file_key: str,
+    ) -> str:
+        """
+        Only generates the path AFTER the base_url_with_path, e.g.
+        - Given base_url_with_path = https://localhost/secure/read_only
+        - Full path of https://localhost/secure/read_only/folder1/file1.jpg
+        - Returns folder1/file1.jpg ONLY
+        No slash at the beginning or end (end should be a file name!)
+        """
+        current_time = int(datetime.datetime.now().timestamp())
+        expires = current_time + expires_in_seconds
+
+        cleaned_file_key = file_key.lstrip("/")
+        uri = f"/{self.presigned_url_path}/{cleaned_file_key}"
+
+        string_to_hash = f"{expires}{uri} {self.secret_key}"
+        md5_hash = base64.urlsafe_b64encode(
+            hashlib.md5(string_to_hash.encode()).digest()
+        ).decode()
+
+        # TODO: check if macos needs this (old code that works...but not sure if its secured link)
+        # string_to_hash = f"{expires}/{self.presigned_url_path}/{cleaned_file_key} {self.secret_key}"
+        # md5_hash = hashlib.md5(string_to_hash.encode()).hexdigest()
+
+        # Build the secure URL
+        secure_url = f"{cleaned_file_key}" f"?md5={md5_hash}&expires={expires}"
+
+        return secure_url
+
     def get_readonly_urls(
         self,
         file_keys: typing.Sequence[str],
@@ -209,7 +242,10 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
                 expires_in_seconds, file_key
             )
 
-        return libression.entities.io.GetUrlsResponse(urls=get_readonly_urls_response)
+        return libression.entities.io.GetUrlsResponse(
+            base_url=self.presigned_base_url_with_path,
+            paths=get_readonly_urls_response,
+        )
 
     async def _delete_single(
         self,
@@ -386,34 +422,6 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             )
 
         return files
-
-    def _presigned_url(
-        self,
-        expires_in_seconds: int,
-        file_key: str,
-    ) -> str:
-        current_time = int(datetime.datetime.now().timestamp())
-        expires = current_time + expires_in_seconds
-
-        cleaned_file_key = file_key.lstrip("/")
-        uri = f"/{self.presigned_url_path}/{cleaned_file_key}"
-
-        string_to_hash = f"{expires}{uri} {self.secret_key}"
-        md5_hash = base64.urlsafe_b64encode(
-            hashlib.md5(string_to_hash.encode()).digest()
-        ).decode()
-
-        # TODO: check if macos needs this (old code that works...but not sure if its secured link)
-        # string_to_hash = f"{expires}/{self.presigned_url_path}/{cleaned_file_key} {self.secret_key}"
-        # md5_hash = hashlib.md5(string_to_hash.encode()).hexdigest()
-
-        # Build the secure URL
-        secure_url = (
-            f"{self.presigned_base_url_with_path}/{cleaned_file_key}"
-            f"?md5={md5_hash}&expires={expires}"
-        )
-
-        return secure_url
 
     async def _ensure_directory_exists(self, url_dir_path: str, client) -> None:
         """Create directory and all parent directories if they don't exist."""

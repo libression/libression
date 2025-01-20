@@ -1,9 +1,13 @@
 import pytest
 import fastapi
 import fastapi.testclient
+import httpx
 import unittest.mock
 import libression.router.media_router
 import libression.media_vault
+import base64
+import uuid
+from unittest.mock import Mock
 
 
 @pytest.fixture
@@ -28,7 +32,7 @@ def mock_media_vault():
 
 
 @pytest.fixture
-def client(app, mock_media_vault):
+def mock_client(app, mock_media_vault):
     app.state.media_vault = mock_media_vault
     return fastapi.testclient.TestClient(app)
 
@@ -38,11 +42,11 @@ def client(app, mock_media_vault):
 ############################################################
 
 
-def test_upload_media(client, mock_media_vault):
+def test_upload_media(mock_client, mock_media_vault):
     # Setup
     test_file_content = "SGVsbG8gV29ybGQ="  # base64 encoded "Hello World"
     expected_response = [
-        libression.router.media_router.FileEntry(
+        libression.entities.db.DBFileEntry(
             file_key="test/path/file1.jpg",
             file_entity_uuid="blablabla",
             thumbnail_key="test/path/file1_thumb.jpg",
@@ -51,12 +55,19 @@ def test_upload_media(client, mock_media_vault):
             thumbnail_phash="def456",
             mime_type="image/jpeg",
             tags=[],
+            action_type=libression.entities.db.DBFileAction.CREATE,
         )
     ]
+
+    # Configure mock_media_vault with necessary attributes for logging
+    mock_io_handler = Mock()
+    mock_io_handler.base_url = "https://webdav:443"
+    mock_io_handler.url_path = "dummy_photos"
+    mock_media_vault.data_io_handler = mock_io_handler
     mock_media_vault.upload_media.return_value = expected_response
 
     # Execute
-    response = client.post(
+    response = mock_client.post(
         "/libression/v1/upload",
         json={
             "files": [{"filename": "test.jpg", "file_source": test_file_content}],
@@ -66,7 +77,21 @@ def test_upload_media(client, mock_media_vault):
 
     # Assert
     assert response.status_code == 200
-    assert response.json() == [expected_response[0].model_dump()]
+    assert response.json() == {
+        "files": [
+            {
+                "file_key": "test/path/file1.jpg",
+                "file_entity_uuid": "blablabla",
+                "thumbnail_key": "test/path/file1_thumb.jpg",
+                "thumbnail_mime_type": "image/jpeg",
+                "thumbnail_checksum": "abc123",
+                "thumbnail_phash": "def456",
+                "mime_type": "image/jpeg",
+                "tags": [],
+            }
+        ]
+    }
+
     mock_media_vault.upload_media.assert_called_once()
     call_args = mock_media_vault.upload_media.call_args[1]
     assert len(call_args["upload_entries"]) == 1
@@ -74,10 +99,10 @@ def test_upload_media(client, mock_media_vault):
     assert call_args["target_dir_key"] == "test/path"
 
 
-def test_get_files_info(client, mock_media_vault):
+def test_get_files_info(mock_client, mock_media_vault):
     # Setup
     expected_response = [
-        libression.router.media_router.FileEntry(
+        libression.entities.db.DBFileEntry(
             file_key="test/file1.jpg",
             file_entity_uuid="blablabla",
             thumbnail_key="test/file1_thumb.jpg",
@@ -86,28 +111,45 @@ def test_get_files_info(client, mock_media_vault):
             thumbnail_phash="def456",
             mime_type="image/jpeg",
             tags=[],
+            action_type=libression.entities.db.DBFileAction.CREATE,
         )
     ]
     mock_media_vault.get_files_info.return_value = expected_response
 
     # Execute
-    response = client.post(
+    response = mock_client.post(
         "/libression/v1/files_info",
         json={"file_keys": ["test/file1.jpg"], "force_refresh": False},
     )
 
     # Assert
     assert response.status_code == 200
-    assert response.json() == [expected_response[0].model_dump()]
+    response_file = response.json()["files"][0]
+    assert response_file["file_key"] == expected_response[0].file_key
+    assert response_file["file_entity_uuid"] == expected_response[0].file_entity_uuid
+    assert response_file["thumbnail_key"] == expected_response[0].thumbnail_key
+    assert (
+        response_file["thumbnail_mime_type"] == expected_response[0].thumbnail_mime_type
+    )
+    assert (
+        response_file["thumbnail_checksum"] == expected_response[0].thumbnail_checksum
+    )
+    assert response_file["thumbnail_phash"] == expected_response[0].thumbnail_phash
+    assert response_file["mime_type"] == expected_response[0].mime_type
+    assert response_file["tags"] == expected_response[0].tags
+    assert "action_type" not in response_file.keys()
 
 
-def test_get_thumbnail_urls(client, mock_media_vault):
+def test_get_thumbnail_urls(mock_client, mock_media_vault):
     # Setup
-    expected_response = {"urls": {"test/thumb1.jpg": "http://example.com/thumb1.jpg"}}
+    expected_response = {
+        "base_url": "http://example.com",
+        "paths": {"test/thumb1.jpg": "thumb1.jpg"},
+    }
     mock_media_vault.get_thumbnail_presigned_urls.return_value = expected_response
 
     # Execute
-    response = client.post(
+    response = mock_client.post(
         "/libression/v1/thumbnails_urls", json={"file_keys": ["test/thumb1.jpg"]}
     )
 
@@ -116,13 +158,16 @@ def test_get_thumbnail_urls(client, mock_media_vault):
     assert response.json() == expected_response
 
 
-def test_get_file_urls(client, mock_media_vault):
+def test_get_file_urls(mock_client, mock_media_vault):
     # Setup
-    expected_response = {"urls": {"test/file1.jpg": "http://example.com/file1.jpg"}}
+    expected_response = {
+        "base_url": "http://example.com",
+        "paths": {"test/file1.jpg": "file1.jpg"},
+    }
     mock_media_vault.get_data_presigned_urls.return_value = expected_response
 
     # Execute
-    response = client.post(
+    response = mock_client.post(
         "/libression/v1/files_urls", json={"file_keys": ["test/file1.jpg"]}
     )
 
@@ -131,20 +176,20 @@ def test_get_file_urls(client, mock_media_vault):
     assert response.json() == expected_response
 
 
-def test_copy_files(client, mock_media_vault):
+def test_copy_files(mock_client, mock_media_vault):
     # Setup
     file_mappings = [
-        libression.router.media_router.FileKeyMapping(
+        libression.entities.io.FileKeyMapping(
             source_key="source/file1.jpg", destination_key="dest/file1.jpg"
         )
     ]
     expected_response = [
-        {"file_key": "source/file1.jpg", "success": True, "error_message": None}
+        {"file_key": "source/file1.jpg", "success": True, "error": None}
     ]
     mock_media_vault.copy.return_value = expected_response
 
     # Execute
-    response = client.post(
+    response = mock_client.post(
         "/libression/v1/copy",
         json={
             "file_mappings": [m.model_dump() for m in file_mappings],
@@ -157,7 +202,7 @@ def test_copy_files(client, mock_media_vault):
     assert response.json() == expected_response
 
 
-def test_delete_files(client, mock_media_vault):
+def test_delete_files(mock_client, mock_media_vault):
     # Setup
     file_entries = [
         libression.router.media_router.FileEntry(
@@ -171,13 +216,11 @@ def test_delete_files(client, mock_media_vault):
             tags=[],
         )
     ]
-    expected_response = [
-        {"file_key": "test/file1.jpg", "success": True, "error_message": None}
-    ]
+    expected_response = [{"file_key": "test/file1.jpg", "success": True, "error": None}]
     mock_media_vault.delete.return_value = expected_response
 
     # Execute
-    response = client.post(
+    response = mock_client.post(
         "/libression/v1/delete",
         json={"file_entries": [entry.model_dump() for entry in file_entries]},
     )
@@ -185,3 +228,60 @@ def test_delete_files(client, mock_media_vault):
     # Assert
     assert response.status_code == 200
     assert response.json() == expected_response
+
+
+############################################################
+# Integration Tests
+############################################################
+
+
+@pytest.mark.parametrize(
+    "minimal_image,",
+    [
+        "png",
+    ],
+    indirect=["minimal_image"],
+)
+def test_upload_media_integration_docker(minimal_image):
+    base_libression_url = "http://localhost:8000"
+    local_webdav_url = (
+        "https://localhost:8443"  # nginx self-signed cert (local address)
+    )
+    docker_webdav_url = "https://webdav:443"  # nginx self-signed cert (docker address)
+    base_64_image = base64.b64encode(minimal_image).decode("utf-8")
+    test_dir = f"test/path/{uuid.uuid4()}"
+
+    # Upload a file
+    upload_response = httpx.post(
+        f"{base_libression_url}/libression/v1/upload",
+        json={
+            "files": [{"filename": "test.jpg", "file_source": base_64_image}],
+            "target_dir": test_dir,
+        },
+    )
+    assert upload_response.status_code == 200
+    file_entry = libression.router.media_router.FileEntry.model_validate(
+        upload_response.json()["files"][0]
+    )
+
+    # Get file urls
+    file_url_response = httpx.post(
+        "http://localhost:8000/libression/v1/files_urls",
+        json={"file_keys": [file_entry.file_key]},
+    ).json()
+
+    corrected_base_url = file_url_response["base_url"].replace(
+        docker_webdav_url, local_webdav_url
+    )
+
+    file_url = f"{corrected_base_url}/{file_url_response['paths'][file_entry.file_key]}"
+    file_response = httpx.get(file_url, verify=False)
+    assert file_response.status_code == 200
+
+    #########################################################
+    # TODO:
+    # - test get_files_info
+    # - test get_thumbnail_urls
+    # - test copy (flag setting to keep source)
+    # - test move (flag setting to delete source)
+    # - test delete

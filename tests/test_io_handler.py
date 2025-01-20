@@ -79,9 +79,9 @@ async def test_get_readonly_urls(
     )
 
     # Test URL generation
-    urls = io_handler.get_readonly_urls([dummy_file_key], expires_in_seconds=3600)
-    assert dummy_file_key in urls.urls
-    assert "://" in urls.urls[dummy_file_key]  # protocol is present
+    response = io_handler.get_readonly_urls([dummy_file_key], expires_in_seconds=3600)
+    assert dummy_file_key in response.paths
+    assert "://" in response.base_url  # protocol is present
 
 
 @pytest.mark.asyncio

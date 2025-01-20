@@ -95,9 +95,12 @@ async def manual_test_webdav():
         [FILE_KEY, f"{FOLDER_NAME}/{FILE_KEY}"],
         expires_in_seconds=3600,
     )
-    root_response = httpx.get(presigned_urls.urls[FILE_KEY], verify=False)
+    root_response = httpx.get(
+        f"{presigned_urls.base_url}/{presigned_urls.paths[FILE_KEY]}", verify=False
+    )
     nested_response = httpx.get(
-        presigned_urls.urls[f"{FOLDER_NAME}/{FILE_KEY}"], verify=False
+        f"{presigned_urls.base_url}/{presigned_urls.paths[f"{FOLDER_NAME}/{FILE_KEY}"]}",
+        verify=False,
     )
 
     assert root_response.content == TEST_DATA
@@ -110,17 +113,19 @@ async def manual_test_webdav():
     )
     time.sleep(1.1)
     timedout_root_response = httpx.get(
-        timedout_presigned_urls.urls[FILE_KEY], verify=False
+        f"{timedout_presigned_urls.base_url}/{timedout_presigned_urls.paths[FILE_KEY]}",
+        verify=False,
     )
     timedout_nested_response = httpx.get(
-        timedout_presigned_urls.urls[f"{FOLDER_NAME}/{FILE_KEY}"], verify=False
+        f"{timedout_presigned_urls.base_url}/{timedout_presigned_urls.paths[f"{FOLDER_NAME}/{FILE_KEY}"]}",
+        verify=False,
     )
 
     assert timedout_root_response.status_code == 410
     assert timedout_nested_response.status_code == 410
 
     # Test delete
-    await handler.delete([f"{FOLDER_NAME}/{FILE_KEY}"], raise_on_error=True)
+    await handler.delete([f"{FOLDER_NAME}/{FILE_KEY}"])
     objects = await handler.list_objects()
     assert (
         len([x for x in objects if x.absolute_path == f"{FOLDER_NAME}/{FILE_KEY}"]) == 0
@@ -174,10 +179,12 @@ async def manual_test_webdav():
         expires_in_seconds=3600,
     )
     deleted_root_response = httpx.get(
-        deleted_presigned_urls.urls[FILE_KEY], verify=False
+        f"{deleted_presigned_urls.base_url}/{deleted_presigned_urls.paths[FILE_KEY]}",
+        verify=False,
     )
     deleted_nested_response = httpx.get(
-        deleted_presigned_urls.urls[f"{FOLDER_NAME}/{FILE_KEY}"], verify=False
+        f"{deleted_presigned_urls.base_url}/{deleted_presigned_urls.paths[f"{FOLDER_NAME}/{FILE_KEY}"]}",
+        verify=False,
     )
 
     assert deleted_root_response.status_code == 404

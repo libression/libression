@@ -33,5 +33,10 @@ dmypy.json
 # IDE
 .vscode/
 
+# SQLite database files
+*.db
+*.sqlite
+*.sqlite3
+
 # Project specific
 **/.minio.sys/

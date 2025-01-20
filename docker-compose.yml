@@ -8,7 +8,7 @@ services:
       - WEBDAV_PASSWORD=${WEBDAV_PASSWORD:-libression_password}
       - NGINX_SECURE_LINK_KEY=${NGINX_SECURE_LINK_KEY:-libression_secret_key}
     ports:
-      - "8443:443"
+      - "8443:443" # 443 internal nginx port, 8443 is external host access
     volumes:
       - webdav_data:/var/www/webdav
     security_opt:
@@ -19,6 +19,34 @@ services:
       - SETFCAP
     sysctls:
       - net.core.somaxconn=65535
+    networks:
+      - libression_network
+
+  libression:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - WEBDAV_USER=${WEBDAV_USER:-libression_user}
+      - WEBDAV_PASSWORD=${WEBDAV_PASSWORD:-libression_password}
+      - NGINX_SECURE_LINK_KEY=${NGINX_SECURE_LINK_KEY:-libression_secret_key}
+      - WEBDAV_BASE_URL=https://webdav:443
+      - WEBDAV_VERIFY_SSL=false
+    depends_on:
+      - webdav
+    security_opt:
+      - label:type:httpd_sys_content_t
+      - label:level:s0:c1,c2
+    sysctls:
+      - net.core.somaxconn=65535
+    networks:
+      - libression_network
 
 volumes:
   webdav_data:
+
+networks:
+  libression_network:
+    driver: bridge

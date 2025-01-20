@@ -2,6 +2,7 @@
 name = "libression"
 version = "0.1.0"
 description = "self-hosting media organiser"
+packages = [{include = "libression"}]
 authors = ["ern chow <chilledgeek@gmail.com>"]
 license = "MIT"
 readme = "README.md"

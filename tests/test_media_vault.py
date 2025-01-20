@@ -610,24 +610,34 @@ async def test_get_presigned_urls(
     )
 
     # Act
-    data_presigned_urls = media_vault.get_data_presigned_urls(
+    data_presigned_response = media_vault.get_data_presigned_urls(
         [x.file_key for x in original_files_info]
     )
 
-    thumbnail_presigned_urls = media_vault.get_thumbnail_presigned_urls(
+    thumbnail_presigned_response = media_vault.get_thumbnail_presigned_urls(
         [x.thumbnail_key for x in original_files_info if x.thumbnail_key is not None]
     )
 
     # Assert
     assert (
-        len(data_presigned_urls.urls) == len(thumbnail_presigned_urls.urls) == 2
+        len(data_presigned_response.paths)
+        == len(thumbnail_presigned_response.paths)
+        == 2
     )  # 2 files + thumbnails
 
     data_url_responses = [
-        httpx.get(x, verify=False) for x in data_presigned_urls.urls.values()
+        httpx.get(
+            f"{data_presigned_response.base_url}/{data_presigned_response.paths[x]}",
+            verify=False,
+        )
+        for x in data_presigned_response.paths.keys()
     ]
     thumbnail_url_responses = [
-        httpx.get(x, verify=False) for x in thumbnail_presigned_urls.urls.values()
+        httpx.get(
+            f"{thumbnail_presigned_response.base_url}/{thumbnail_presigned_response.paths[x]}",
+            verify=False,
+        )
+        for x in thumbnail_presigned_response.paths.keys()
     ]
 
     assert all(x.status_code == 200 for x in data_url_responses)
@@ -698,11 +708,14 @@ async def test_upload_media(
         [entry.thumbnail_key for entry in result if entry.thumbnail_key is not None]
     )
 
-    assert len(data_urls.urls) == len(thumbnail_urls.urls) == 2
+    assert len(data_urls.paths) == len(thumbnail_urls.paths) == 2
 
     # Verify URLs are accessible
-    for url in [*data_urls.urls.values(), *thumbnail_urls.urls.values()]:
-        response = httpx.get(url, verify=False)
+    for url in [*data_urls.paths.values(), *thumbnail_urls.paths.values()]:
+        response = httpx.get(
+            f"{data_urls.base_url}/{url}",
+            verify=False,
+        )
         assert response.status_code == 200
         assert response.content is not None
 

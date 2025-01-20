@@ -3,9 +3,10 @@ import typing
 import libression.config
 import libression.entities.media
 import libression.entities.base
+import pydantic
 
 
-class FileKeyMapping(typing.NamedTuple):
+class FileKeyMapping(pydantic.BaseModel):
     source_key: str
     destination_key: str
 
@@ -45,8 +46,18 @@ class FileStreamInfos(typing.NamedTuple):
     file_streams: dict[str, FileStreamInfo]
 
 
-class GetUrlsResponse(typing.NamedTuple):
-    urls: dict[str, str]
+class GetUrlsResponse(pydantic.BaseModel):
+    """
+    Response containing base URL and paths for each file key.
+    Allows clients to reconstruct URLs using appropriate base URL for their context.
+    """
+
+    base_url: str = pydantic.Field(
+        description="Base URL (e.g., 'https://webdav:443' or 'https://localhost:8443')"
+    )
+    paths: dict[str, str] = pydantic.Field(
+        description="Mapping of file keys to their paths"
+    )
 
 
 class ListDirectoryObject(typing.NamedTuple):

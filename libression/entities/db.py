@@ -74,6 +74,20 @@ class DBFileEntry(typing.NamedTuple):
         fields = {k: data[k] for k in cls._fields if k in data}
         return cls(**fields)
 
+    def to_dict(self) -> dict:
+        """Convert the DBFileEntry object to a dictionary."""
+        return {
+            "file_key": self.file_key,
+            "file_entity_uuid": self.file_entity_uuid,
+            "thumbnail_key": self.thumbnail_key,
+            "thumbnail_mime_type": self.thumbnail_mime_type,
+            "thumbnail_checksum": self.thumbnail_checksum,
+            "thumbnail_phash": self.thumbnail_phash,
+            "mime_type": self.mime_type,
+            "tags": self.tags,
+            # Add any other fields that should be included in the response
+        }
+
 
 def new_db_file_entry(
     file_key: str,

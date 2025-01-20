@@ -101,10 +101,14 @@ class MediaVault:
         Save thumbnail (to cache, not DB)
         """
 
-        original_url = self.data_io_handler.get_readonly_urls(
+        readonly_url_response = self.data_io_handler.get_readonly_urls(
             [file_key],
             expires_in_seconds=presigned_url_expires_in_seconds,
-        ).urls[file_key]
+        )
+
+        original_url = (
+            f"{readonly_url_response.base_url}/{readonly_url_response.paths[file_key]}"
+        )
 
         url_header_response = httpx.head(
             original_url,
