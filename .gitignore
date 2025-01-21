@@ -40,3 +40,6 @@ dmypy.json
 
 # Project specific
 **/.minio.sys/
+
+# OpenAPI spec
+openapi.json

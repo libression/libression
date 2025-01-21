@@ -14,6 +14,8 @@ htpasswd -cb /etc/nginx/.htpasswd "${WEBDAV_USER}" "${WEBDAV_PASSWORD}"
 # Create required directories with proper permissions
 mkdir -p /var/www/webdav/dummy_photos
 mkdir -p /var/www/webdav/readonly_dummy_photos
+mkdir -p /var/www/webdav/dummy_photos_cache
+mkdir -p /var/www/webdav/readonly_dummy_photos_cache
 
 # Set ownership and permissions
 chown -R nginx:nginx /var/www/webdav
@@ -23,6 +25,8 @@ find /var/www/webdav -type d -exec chmod u+w {} \;  # Add write permission for d
 # Ensure nginx can write to the directories
 chmod 775 /var/www/webdav/dummy_photos
 chmod 775 /var/www/webdav/readonly_dummy_photos
+chmod 775 /var/www/webdav/dummy_photos_cache
+chmod 775 /var/www/webdav/readonly_dummy_photos_cache
 
 # Set SGID bit to maintain group ownership
 find /var/www/webdav -type d -exec chmod g+s {} \;

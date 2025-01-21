@@ -1,5 +1,6 @@
 import uvicorn
 import fastapi
+import json
 import libression.router.media_router
 
 
@@ -30,4 +31,10 @@ def create_app() -> fastapi.FastAPI:
 app = create_app()
 
 if __name__ == "__main__":
+
+    # Update the openapi spec (should be gitignored)
+    openapi_spec = app.openapi()
+    with open("openapi.json", "w") as f:
+        json.dump(openapi_spec, f, indent=4)
+    
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

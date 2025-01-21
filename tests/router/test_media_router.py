@@ -260,28 +260,123 @@ def test_upload_media_integration_docker(minimal_image):
         },
     )
     assert upload_response.status_code == 200
-    file_entry = libression.router.media_router.FileEntry.model_validate(
+    original_file_entry = libression.router.media_router.FileEntry.model_validate(
         upload_response.json()["files"][0]
     )
 
-    # Get file urls
-    file_url_response = httpx.post(
-        "http://localhost:8000/libression/v1/files_urls",
-        json={"file_keys": [file_entry.file_key]},
+    # Copy file
+    copied_file_key = f"{test_dir}/{test_dir}/copy.jpg"
+    copy_response = httpx.post(
+        f"{base_libression_url}/libression/v1/copy",
+        json={
+            "file_mappings": [
+                {
+                    "source_key": original_file_entry.file_key,
+                    "destination_key": copied_file_key,
+                }
+            ],
+            "delete_source": False,
+        },
+    )
+    assert copy_response.status_code == 200
+
+    # Move file
+    moved_file_key = f"{test_dir}/{test_dir}/moved.jpg"
+    move_response = httpx.post(
+        f"{base_libression_url}/libression/v1/copy",
+        json={
+            "file_mappings": [
+                {
+                    "source_key": original_file_entry.file_key,
+                    "destination_key": moved_file_key,
+                }
+            ],
+            "delete_source": True,
+        },
+    )
+    assert move_response.status_code == 200
+
+    # Check file info is correct
+    get_files_info_response = httpx.post(
+        f"{base_libression_url}/libression/v1/files_info",
+        json={"file_keys": [copied_file_key, moved_file_key]},
+    )
+
+    assert get_files_info_response.status_code == 200
+    assert len(get_files_info_response.json()["files"]) == 2
+
+    # Get file urls (bulk)
+    file_urls_response = httpx.post(
+        f"{base_libression_url}/libression/v1/files_urls",
+        json={"file_keys": [copied_file_key, moved_file_key]},
     ).json()
 
-    corrected_base_url = file_url_response["base_url"].replace(
+    assert len(file_urls_response["paths"]) == 2
+
+    corrected_base_url = file_urls_response["base_url"].replace(
         docker_webdav_url, local_webdav_url
     )
 
-    file_url = f"{corrected_base_url}/{file_url_response['paths'][file_entry.file_key]}"
-    file_response = httpx.get(file_url, verify=False)
-    assert file_response.status_code == 200
+    # Check fetching info + source files
+    file_entries = dict()
 
-    #########################################################
-    # TODO:
-    # - test get_files_info
-    # - test get_thumbnail_urls
-    # - test copy (flag setting to keep source)
-    # - test move (flag setting to delete source)
-    # - test delete
+    for entry in get_files_info_response.json()["files"]:
+        # parses correctly
+        file_entry = libression.router.media_router.FileEntry.model_validate(entry)
+        file_entries[file_entry.file_key] = file_entry
+
+        assert file_entry.file_key in [copied_file_key, moved_file_key]
+        assert file_entry.file_entity_uuid is not None
+
+        # Check file is accessible
+        found_path = file_urls_response["paths"][file_entry.file_key]
+        adjusted_file_url = f"{corrected_base_url}/{found_path}"
+        file_get_response = httpx.get(adjusted_file_url, verify=False)
+        assert file_get_response.status_code == 200
+        assert file_get_response.content == minimal_image
+
+        # Check thumbnail is accessible
+        thumbnail_urls_response = httpx.post(
+            f"{base_libression_url}/libression/v1/thumbnails_urls",
+            json={"file_keys": [file_entry.thumbnail_key]},
+        ).json()
+
+        assert len(thumbnail_urls_response["paths"]) == 1
+
+        corrected_thumbnail_base_url = thumbnail_urls_response["base_url"].replace(
+            docker_webdav_url, local_webdav_url
+        )
+
+        adjusted_thumbnail_url = f"{corrected_thumbnail_base_url}/{thumbnail_urls_response['paths'][file_entry.thumbnail_key]}"
+        thumbnail_get_response = httpx.get(adjusted_thumbnail_url, verify=False)
+        assert thumbnail_get_response.status_code == 200
+        assert len(thumbnail_get_response.content) > 0
+
+    # Check delete
+    delete_response = httpx.post(
+        f"{base_libression_url}/libression/v1/delete",
+        json={"file_entries": [x.model_dump() for x in file_entries.values()]},
+    )
+    assert delete_response.status_code == 200
+
+    # Check files are deleted + teardown
+    for file_key in [original_file_entry.file_key, copied_file_key, moved_file_key]:
+        bad_get_files_info_response = httpx.post(
+            f"{base_libression_url}/libression/v1/files_info",
+            json={"file_keys": [file_key]},
+        )
+        assert bad_get_files_info_response.status_code == 500  # Not good code, but not designed to be called like this
+
+        bad_file_urls_response = httpx.post(
+            f"{base_libression_url}/libression/v1/files_urls",
+            json={"file_keys": [file_key]},
+        ).json()
+        
+        corrected_base_url = bad_file_urls_response["base_url"].replace(
+            docker_webdav_url, local_webdav_url
+        )
+        adjusted_bad_file_url = f"{corrected_base_url}/{bad_file_urls_response['paths'][file_key]}"
+        bad_file_get_response = httpx.get(adjusted_bad_file_url, verify=False)
+        assert bad_file_get_response.status_code == 404
+
+    print("passed")
