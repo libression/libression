@@ -62,7 +62,7 @@ def test_upload_media(mock_client, mock_media_vault):
     # Configure mock_media_vault with necessary attributes for logging
     mock_io_handler = Mock()
     mock_io_handler.base_url = "https://webdav:443"
-    mock_io_handler.url_path = "dummy_photos"
+    mock_io_handler.url_path = "libression_photos"
     mock_media_vault.data_io_handler = mock_io_handler
     mock_media_vault.upload_media.return_value = expected_response
 

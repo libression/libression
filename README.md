@@ -37,8 +37,8 @@ We need 3 things:
 #### Linux
 - Parameters to set up (replace with appropriate values)
   - `/var/www/webdav/` (root directory for webdav, not sure if this can be changed...)
-  - `dummy_photos` (directory to expose, should be in `/var/www/webdav/`)
-  - `dummy_photos_cache` (cache directory, should be in `/var/www/webdav/`, can be empty to start with)
+  - `libression_photos` (directory to expose, should be in `/var/www/webdav/`)
+  - `libression_photos_cache` (cache directory, should be in `/var/www/webdav/`, can be empty to start with)
   - webdav username: chilledgeek
   - webdav password: chilledgeek
   - webdavsecret key: chilledgeek_secret_key (for presigned URLs)
@@ -70,10 +70,10 @@ We need 3 things:
     sudo restorecon -R -v /var/www/webdav
 
     # Set context
-    sudo semanage fcontext -a -t httpd_sys_content_t "/var/www/webdav/dummy_photos(/.*)?"
-    sudo semanage fcontext -a -t httpd_sys_content_t "/var/www/webdav/dummy_photos_cache(/.*)?"
-    sudo restorecon -R -v /var/www/webdav/dummy_photos
-    sudo restorecon -R -v /var/www/webdav/dummy_photos_cache
+    sudo semanage fcontext -a -t httpd_sys_content_t "/var/www/webdav/libression_photos(/.*)?"
+    sudo semanage fcontext -a -t httpd_sys_content_t "/var/www/webdav/libression_photos_cache(/.*)?"
+    sudo restorecon -R -v /var/www/webdav/libression_photos
+    sudo restorecon -R -v /var/www/webdav/libression_photos_cache
 
     # Set additional required SELinux booleans
     sudo setsebool -P httpd_unified 1

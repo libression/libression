@@ -28,8 +28,8 @@ def docker_webdav_io_handler():
     # Async to keep same interface as in_memory_io_handler
     handler = libression.io_handler.webdav.WebDAVIOHandler(
         base_url="https://localhost:8443",  # Updated port
-        url_path="dummy_photos",
-        presigned_url_path="readonly_dummy_photos",
+        url_path="libression_photos",
+        presigned_url_path="readonly_libression_photos",
         verify_ssl=False,
     )  # Default credentials are set in the WebDAVIOHandler class
     yield handler

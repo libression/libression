@@ -4,10 +4,10 @@ FROM nginx:alpine
 RUN apk add --no-cache apache2-utils openssl
 
 # Create directories and set permissions
-RUN mkdir -p /var/www/webdav/dummy_photos && \
-    mkdir -p /var/www/webdav/readonly_dummy_photos && \
-    mkdir -p /var/www/webdav/dummy_photos_cache && \
-    mkdir -p /var/www/webdav/readonly_dummy_photos_cache
+RUN mkdir -p /var/www/webdav/libression_photos && \
+    mkdir -p /var/www/webdav/readonly_libression_photos && \
+    mkdir -p /var/www/webdav/libression_photos_cache && \
+    mkdir -p /var/www/webdav/readonly_libression_photos_cache
 
 # Copy configuration files/scripts
 COPY sample_config/nginx_docker.conf /etc/nginx/nginx.conf

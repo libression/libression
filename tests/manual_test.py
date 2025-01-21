@@ -10,8 +10,8 @@ import libression.entities.io
 import libression.io_handler.webdav
 
 BASE_URL = "https://localhost"
-URL_PATH = "dummy_photos"
-PRESIGNED_URL_PATH = "readonly_dummy_photos"
+URL_PATH = "libression_photos"
+PRESIGNED_URL_PATH = "readonly_libression_photos"
 USERNAME = "chilledgeek"
 PASSWORD = "chilledgeek"
 SECRET_KEY = "chilledgeek_secret_key"
