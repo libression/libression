@@ -250,6 +250,7 @@ def test_upload_media_integration_docker(minimal_image):
     docker_webdav_url = "https://webdav:443"  # nginx self-signed cert (docker address)
     base_64_image = base64.b64encode(minimal_image).decode("utf-8")
     test_dir = f"test/path/{uuid.uuid4()}"
+    test_tag = str(uuid.uuid4())
 
     # Upload a file
     upload_response = httpx.post(
@@ -303,7 +304,9 @@ def test_upload_media_integration_docker(minimal_image):
     )
 
     assert get_files_info_response.status_code == 200
-    assert len(get_files_info_response.json()["files"]) == 2
+
+    files_info = get_files_info_response.json()["files"]
+    assert len(files_info) == 2
 
     # Get file urls (bulk)
     file_urls_response = httpx.post(
@@ -320,7 +323,7 @@ def test_upload_media_integration_docker(minimal_image):
     # Check fetching info + source files
     file_entries = dict()
 
-    for entry in get_files_info_response.json()["files"]:
+    for entry in files_info:
         # parses correctly
         file_entry = libression.router.media_router.FileEntry.model_validate(entry)
         file_entries[file_entry.file_key] = file_entry
@@ -351,6 +354,41 @@ def test_upload_media_integration_docker(minimal_image):
         thumbnail_get_response = httpx.get(adjusted_thumbnail_url, verify=False)
         assert thumbnail_get_response.status_code == 200
         assert len(thumbnail_get_response.content) > 0
+
+    # Update tags
+    update_tags_response = httpx.post(
+        f"{base_libression_url}/libression/v1/update_tags",
+        json={
+            "tag_entries": [
+                {
+                    "file_entity_uuid": file_entries[copied_file_key].file_entity_uuid,
+                    "tags": [test_tag, f"{test_tag}_2", f"{test_tag}_3"],
+                }
+            ],
+        },
+    )
+    assert update_tags_response.status_code == 200
+
+    search_by_tags_positive_response = httpx.post(
+        f"{base_libression_url}/libression/v1/search_by_tags",
+        json={
+            "include_tag_groups": [[test_tag], ["asdfadf"]],
+            "exclude_tags": [],
+        },
+    )
+    assert search_by_tags_positive_response.status_code == 200
+    assert len(search_by_tags_positive_response.json()["files"]) == 1
+
+    search_by_tags_negative_response = httpx.post(
+        f"{base_libression_url}/libression/v1/search_by_tags",
+        json={
+            "include_tag_groups": [[test_tag], [f"{test_tag}_2"]],
+            "exclude_tags": [f"{test_tag}_3"],  # Key to return no files
+        },
+    )
+    assert search_by_tags_negative_response.status_code == 200
+    assert len(search_by_tags_negative_response.json()["files"]) == 0
+
 
     # Check delete
     delete_response = httpx.post(

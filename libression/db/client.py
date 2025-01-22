@@ -133,7 +133,7 @@ class DBClient:
 
     def _insert_file_tags(
         self,
-        entries: list[libression.entities.db.DBFileEntry],
+        entries: list[libression.entities.db.DBTagEntry],
         cursor: sqlite3.Cursor,
     ) -> None:
         """
@@ -143,17 +143,12 @@ class DBClient:
         if not entries:
             return None  # nothing to do
 
-        invalid_entries = [entry for entry in entries if not entry.file_entity_uuid]
-
-        if invalid_entries:
-            raise ValueError("Entries with no entity_uuid cannot be inserted!")
-
         # Filter entries with tags and prepare parameters
         tag_params = []
 
         tags_created_at = datetime.datetime.now(
             datetime.UTC
-        )  # Inserts grouped by timestamp and file_entity_uuid
+        )  # grouped by file_entity_uuid timestamp (point of insert)
 
         for entry in entries:
             tag_mapping = self._sync_tags_by_tag_names(list(entry.tags), cursor)
@@ -170,7 +165,7 @@ class DBClient:
 
     def register_file_tags(
         self,
-        entries: list[libression.entities.db.DBFileEntry],
+        entries: list[libression.entities.db.DBTagEntry],
     ) -> None:
         """Register tags for files."""
         if not entries:
@@ -403,8 +398,8 @@ class DBClient:
 
     def get_file_entries_by_tags(
         self,
-        include_tag_groups: list[list[str]] = [],
-        exclude_tags: list[str] = [],
+        include_tag_groups: list[list[str]],
+        exclude_tags: list[str],
     ) -> list[libression.entities.db.DBFileEntry]:
         """
         Find files matching tag criteria:

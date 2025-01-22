@@ -4,6 +4,7 @@ import enum
 import sqlite3  # Just for type hints. NOT for any operations!
 import typing
 import uuid
+import pydantic
 
 
 @dataclasses.dataclass
@@ -144,3 +145,11 @@ def existing_db_file_entry(
         action_created_at=None,  # explicitly None
         tags_created_at=None,  # explicitly None
     )
+
+
+class DBTagEntry(pydantic.BaseModel):
+    """
+    Minimal info required for tag operations (subset of DBFileEntry)
+    """
+    file_entity_uuid: str
+    tags: typing.Sequence[str] = tuple()  # converts to tag_bits in db

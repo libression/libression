@@ -72,6 +72,12 @@ class CopyRequest(pydantic.BaseModel):
 class DeleteRequest(pydantic.BaseModel):
     file_entries: list[FileEntry]
 
+class SearchByTagsRequest(pydantic.BaseModel):
+    include_tag_groups: list[list[str]]
+    exclude_tags: list[str]
+
+class TagEntries(pydantic.BaseModel):
+    tag_entries: list[libression.entities.db.DBTagEntry]
 
 ############################################################
 # --- Lifespans ---
@@ -224,3 +230,33 @@ async def delete_files(
     ]
 
     return await request.app.state.media_vault.delete(file_entries=entries)
+
+
+@router.post("/update_tags")
+def update_tags(
+    request: fastapi.Request,
+    tag_entries_request: TagEntries,
+) -> None:
+    """
+    Update tags for files (must include existing tags to keep + new tags)
+    """
+
+    return request.app.state.media_vault.db_client.register_file_tags(
+        tag_entries_request.tag_entries,
+    )
+
+
+@router.post("/search_by_tags", response_model=FileEntries)
+def search_by_tags(
+    request: fastapi.Request,
+    search_by_tags_request: SearchByTagsRequest,
+) -> FileEntries:
+    output = request.app.state.media_vault.db_client.get_file_entries_by_tags(
+        include_tag_groups=search_by_tags_request.include_tag_groups,
+        exclude_tags=search_by_tags_request.exclude_tags,
+    )
+    return FileEntries(
+        files=[
+            FileEntry.model_validate(entry.to_dict(), ) for entry in output
+        ]
+    )

@@ -487,7 +487,13 @@ class MediaVault:
 
             if not delete_source:  # COPY, so new file_entity_uuids need tags copied
                 self.db_client.register_file_tags(
-                    registered_entries
+                    [
+                        libression.entities.db.DBTagEntry(
+                            file_entity_uuid=entry.file_entity_uuid,
+                            tags=entry.tags,
+                        )
+                        for entry in registered_entries
+                    ]
                 )  # register tags for new file_entity_uuid
 
         return data_copy_responses
@@ -555,11 +561,5 @@ class MediaVault:
             file_keys=all_file_keys,
             presigned_url_expires_in_seconds=presigned_url_expires_in_seconds,
         )
-
-    def search_by_tags(self):
-        raise NotImplementedError("TODO")
-
-    def edit_tags(self):
-        raise NotImplementedError("TODO")
 
     # TODO: cover for errors + account for when external action (deletion/moves) how we should handle...

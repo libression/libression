@@ -108,10 +108,19 @@ def test_basic_tag_queries(db_client):
         ),
     ]
     registered = db_client.register_file_action(entries)
-    db_client.register_file_tags(registered)
+    db_client.register_file_tags(
+        [
+            libression.entities.db.DBTagEntry(
+                file_entity_uuid=entry.file_entity_uuid,
+                tags=entry.tags,
+            )
+            for entry in registered
+        ]
+    )
 
     beach_vacation = db_client.get_file_entries_by_tags(
-        include_tag_groups=[["vacation", "beach"]]
+        include_tag_groups=[["vacation", "beach"]],
+        exclude_tags=[],
     )
     assert len(beach_vacation) == 1
     assert beach_vacation[0].file_key == "beach1.jpg"
@@ -128,7 +137,15 @@ def test_complex_tag_queries(db_client):
         ),
     ]
     registered = db_client.register_file_action(entries)
-    db_client.register_file_tags(registered)
+    db_client.register_file_tags(
+        [
+            libression.entities.db.DBTagEntry(
+                file_entity_uuid=entry.file_entity_uuid,
+                tags=entry.tags,
+            )
+            for entry in registered
+        ]
+    )
 
     results = db_client.get_file_entries_by_tags(
         include_tag_groups=[["summer", "beach"], ["winter", "mountain"]],
@@ -146,7 +163,15 @@ def test_tag_history(db_client):
         ),
     ]
     registered = db_client.register_file_action(entries)
-    db_client.register_file_tags(registered)
+    db_client.register_file_tags(
+        [
+            libression.entities.db.DBTagEntry(
+                file_entity_uuid=entry.file_entity_uuid,
+                tags=entry.tags,
+            )
+            for entry in registered
+        ]
+    )
 
     updated = libression.entities.db.existing_db_file_entry(
         file_key="test.jpg",
@@ -155,7 +180,14 @@ def test_tag_history(db_client):
         tags=["updated", "tags"],
     )
     db_client.register_file_action([updated])
-    db_client.register_file_tags([updated])
+    db_client.register_file_tags(
+        [
+            libression.entities.db.DBTagEntry(
+                file_entity_uuid=updated.file_entity_uuid,
+                tags=updated.tags,
+            )
+        ]
+    )
 
     history = db_client.get_tag_history("test.jpg")
     assert len(history) == 2
@@ -184,7 +216,15 @@ def test_tag_operations(db_client):
         ),
     ]
     registered = db_client.register_file_action(entries)
-    db_client.register_file_tags(registered)
+    db_client.register_file_tags(
+        [
+            libression.entities.db.DBTagEntry(
+                file_entity_uuid=entry.file_entity_uuid,
+                tags=entry.tags,
+            )
+            for entry in registered
+        ]
+    )
 
     # Test single group include
     beach_vacation = db_client.get_file_entries_by_tags(
@@ -196,7 +236,8 @@ def test_tag_operations(db_client):
 
     # Test multiple groups (OR)
     vacation_or_important = db_client.get_file_entries_by_tags(
-        include_tag_groups=[["vacation"], ["important"]]
+        include_tag_groups=[["vacation"], ["important"]],
+        exclude_tags=[],
     )
     assert len(vacation_or_important) == 4  # beach1, mountain1, work1, draft1
     assert {f.file_key for f in vacation_or_important} == {
@@ -208,7 +249,8 @@ def test_tag_operations(db_client):
 
     # Test complex groups
     summer_beach_or_winter_mountain = db_client.get_file_entries_by_tags(
-        include_tag_groups=[["summer", "beach"], ["winter", "mountain"]]
+        include_tag_groups=[["summer", "beach"], ["winter", "mountain"]],
+        exclude_tags=[],
     )
     assert len(summer_beach_or_winter_mountain) == 2
     assert {f.file_key for f in summer_beach_or_winter_mountain} == {
@@ -271,7 +313,14 @@ def test_tag_operations(db_client):
         tags={"vacation", "beach", "sunset"},
     )
     db_client.register_file_action([updated])
-    db_client.register_file_tags([updated])
+    db_client.register_file_tags(
+        [
+            libression.entities.db.DBTagEntry(
+                file_entity_uuid=updated.file_entity_uuid,
+                tags=updated.tags,
+            )
+        ]
+    )
 
     # Verify tag history shows changes
     tag_history = db_client.get_tag_history("moved.jpg")
@@ -319,11 +368,15 @@ def test_error_cases(db_client):
 def test_tag_error_cases(db_client):
     """Test tag-related error cases."""
     with pytest.raises(ValueError):
-        db_client.get_file_entries_by_tags()  # No tags
+        db_client.get_file_entries_by_tags(
+            include_tag_groups=[],
+            exclude_tags=[],
+        )  # No tags
 
     with pytest.raises(ValueError):
         db_client.get_file_entries_by_tags(
-            include_tag_groups=[["tag1", "tag1"]]  # Duplicate tags
+            include_tag_groups=[["tag1", "tag1"]],
+            exclude_tags=[],
         )
 
     with pytest.raises(ValueError):
