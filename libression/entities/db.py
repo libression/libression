@@ -151,5 +151,6 @@ class DBTagEntry(pydantic.BaseModel):
     """
     Minimal info required for tag operations (subset of DBFileEntry)
     """
+
     file_entity_uuid: str
     tags: typing.Sequence[str] = tuple()  # converts to tag_bits in db

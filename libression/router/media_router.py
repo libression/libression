@@ -72,12 +72,15 @@ class CopyRequest(pydantic.BaseModel):
 class DeleteRequest(pydantic.BaseModel):
     file_entries: list[FileEntry]
 
+
 class SearchByTagsRequest(pydantic.BaseModel):
     include_tag_groups: list[list[str]]
     exclude_tags: list[str]
 
+
 class TagEntries(pydantic.BaseModel):
     tag_entries: list[libression.entities.db.DBTagEntry]
+
 
 ############################################################
 # --- Lifespans ---
@@ -257,6 +260,9 @@ def search_by_tags(
     )
     return FileEntries(
         files=[
-            FileEntry.model_validate(entry.to_dict(), ) for entry in output
+            FileEntry.model_validate(
+                entry.to_dict(),
+            )
+            for entry in output
         ]
     )

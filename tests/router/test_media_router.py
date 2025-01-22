@@ -389,7 +389,6 @@ def test_upload_media_integration_docker(minimal_image):
     assert search_by_tags_negative_response.status_code == 200
     assert len(search_by_tags_negative_response.json()["files"]) == 0
 
-
     # Check delete
     delete_response = httpx.post(
         f"{base_libression_url}/libression/v1/delete",
@@ -403,17 +402,21 @@ def test_upload_media_integration_docker(minimal_image):
             f"{base_libression_url}/libression/v1/files_info",
             json={"file_keys": [file_key]},
         )
-        assert bad_get_files_info_response.status_code == 500  # Not good code, but not designed to be called like this
+        assert (
+            bad_get_files_info_response.status_code == 500
+        )  # Not good code, but not designed to be called like this
 
         bad_file_urls_response = httpx.post(
             f"{base_libression_url}/libression/v1/files_urls",
             json={"file_keys": [file_key]},
         ).json()
-        
+
         corrected_base_url = bad_file_urls_response["base_url"].replace(
             docker_webdav_url, local_webdav_url
         )
-        adjusted_bad_file_url = f"{corrected_base_url}/{bad_file_urls_response['paths'][file_key]}"
+        adjusted_bad_file_url = (
+            f"{corrected_base_url}/{bad_file_urls_response['paths'][file_key]}"
+        )
         bad_file_get_response = httpx.get(adjusted_bad_file_url, verify=False)
         assert bad_file_get_response.status_code == 404
 

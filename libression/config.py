@@ -13,7 +13,9 @@ WEBDAV_PRESIGNED_URL_PATH = os.environ.get(
 )
 WEBDAV_VERIFY_SSL = bool(os.environ.get("WEBDAV_VERIFY_SSL", "True").lower() == "true")
 
-WEBDAV_CACHE_URL_PATH = os.environ.get("WEBDAV_CACHE_URL_PATH", "libression_photos_cache")
+WEBDAV_CACHE_URL_PATH = os.environ.get(
+    "WEBDAV_CACHE_URL_PATH", "libression_photos_cache"
+)
 WEBDAV_CACHE_PRESIGNED_URL_PATH = os.environ.get(
     "WEBDAV_CACHE_PRESIGNED_URL_PATH", "readonly_libression_photos_cache"
 )
