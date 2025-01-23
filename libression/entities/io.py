@@ -60,7 +60,7 @@ class GetUrlsResponse(pydantic.BaseModel):
     )
 
 
-class ListDirectoryObject(typing.NamedTuple):
+class ListDirectoryObject(pydantic.BaseModel):
     """File information (eg from WebDAV)"""
 
     filename: str

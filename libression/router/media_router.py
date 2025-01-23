@@ -82,6 +82,17 @@ class TagEntries(pydantic.BaseModel):
     tag_entries: list[libression.entities.db.DBTagEntry]
 
 
+class ShowDirContentsRequest(pydantic.BaseModel):
+    dir_key: str = pydantic.Field(
+        description="dir to show contents/subdirs of ... no slashes at the beginning or end"
+    )
+    subfolder_contents: bool = False
+
+
+class ShowDirContentsResponse(pydantic.BaseModel):
+    dir_contents: list[libression.entities.io.ListDirectoryObject]
+
+
 ############################################################
 # --- Lifespans ---
 ############################################################
@@ -265,4 +276,22 @@ def search_by_tags(
             )
             for entry in output
         ]
+    )
+
+
+@router.post(
+    "/show_dir_contents",
+    response_model=ShowDirContentsResponse,
+)
+async def show_dir_contents(
+    request: fastapi.Request,
+    show_dir_contents_request: ShowDirContentsRequest,
+) -> ShowDirContentsResponse:
+    list_obj_output = await request.app.state.media_vault.data_io_handler.list_objects(
+        dirpath=show_dir_contents_request.dir_key,
+        subfolder_contents=show_dir_contents_request.subfolder_contents,
+    )
+
+    return ShowDirContentsResponse(
+        dir_contents=list_obj_output,
     )

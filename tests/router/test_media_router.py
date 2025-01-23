@@ -389,6 +389,19 @@ def test_upload_media_integration_docker(minimal_image):
     assert search_by_tags_negative_response.status_code == 200
     assert len(search_by_tags_negative_response.json()["files"]) == 0
 
+    # Check dir contents
+    show_dir_contents_response = httpx.post(
+        f"{base_libression_url}/libression/v1/show_dir_contents",
+        json={"dir_key": test_dir, "subfolder_contents": True},
+    )
+    assert show_dir_contents_response.status_code == 200
+    show_dir_obj = (
+        libression.router.media_router.ShowDirContentsResponse.model_validate(
+            show_dir_contents_response.json()
+        )
+    )
+    assert len([x for x in show_dir_obj.dir_contents if not x.is_dir]) > 0
+
     # Check delete
     delete_response = httpx.post(
         f"{base_libression_url}/libression/v1/delete",
@@ -419,5 +432,19 @@ def test_upload_media_integration_docker(minimal_image):
         )
         bad_file_get_response = httpx.get(adjusted_bad_file_url, verify=False)
         assert bad_file_get_response.status_code == 404
+
+    # Check dir contents
+    show_empty_dir_contents_response = httpx.post(
+        f"{base_libression_url}/libression/v1/show_dir_contents",
+        json={"dir_key": test_dir, "subfolder_contents": True},
+    )
+
+    assert show_empty_dir_contents_response.status_code == 200
+    show_empty_dir_obj = (
+        libression.router.media_router.ShowDirContentsResponse.model_validate(
+            show_empty_dir_contents_response.json()
+        )
+    )
+    assert len([x for x in show_empty_dir_obj.dir_contents if not x.is_dir]) == 0
 
     print("passed")
