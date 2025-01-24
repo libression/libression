@@ -228,7 +228,8 @@ def test_tag_operations(db_client):
 
     # Test single group include
     beach_vacation = db_client.get_file_entries_by_tags(
-        include_tag_groups=[["vacation", "beach"]]
+        include_tag_groups=[["vacation", "beach"]],
+        exclude_tags=[],
     )
     assert len(beach_vacation) == 1
     assert beach_vacation[0].file_key == "beach1.jpg"
@@ -317,7 +318,7 @@ def test_tag_operations(db_client):
         [
             libression.entities.db.DBTagEntry(
                 file_entity_uuid=updated.file_entity_uuid,
-                tags=updated.tags,
+                tags=list(updated.tags),
             )
         ]
     )
