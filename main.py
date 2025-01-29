@@ -2,6 +2,7 @@ import uvicorn
 import fastapi
 import json
 import libression.router.media_router
+import fastapi.middleware.cors
 
 
 def create_app() -> fastapi.FastAPI:
@@ -14,6 +15,15 @@ def create_app() -> fastapi.FastAPI:
         description="Media management API",
         version="1.0.0",
         lifespan=libression.router.media_router.lifespan,
+    )
+
+    # Configure CORS
+    app.add_middleware(
+        fastapi.middleware.cors.CORSMiddleware,
+        allow_origins=["http://localhost:3000"],  # Frontend URL
+        allow_credentials=True,
+        allow_methods=["*"],  # Allows all methods
+        allow_headers=["*"],  # Allows all headers
     )
 
     # Include the media router
