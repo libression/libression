@@ -2,7 +2,6 @@ import io
 import logging
 import concurrent.futures
 import base64
-
 import libression.db.client
 import libression.entities.io
 import libression.thumbnail
@@ -18,6 +17,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_STATIC_SUFFIX = "thumbnail.jpg"
 DEFAULT_CACHE_DYNAMIC_SUFFIX = "thumbnail.gif"
+
+
+class _InterimFileProcessContext(typing.NamedTuple):
+    file_entry: libression.entities.db.DBFileEntry
+    file_key_mapping: libression.entities.io.FileKeyMapping
 
 
 class ThumbnailFile(typing.NamedTuple):
@@ -171,7 +175,6 @@ class MediaVault:
         self,
         file_keys: list[str],
         presigned_url_expires_in_seconds: int = 60 * 60 * 24 * 30,
-        force_cache_refresh: bool = False,
         max_concurrent_tasks: int = 5,
     ) -> list[libression.entities.db.DBFileEntry]:
         """
@@ -181,6 +184,8 @@ class MediaVault:
             file_keys: List of file keys to get thumbnails for
             presigned_url_expires_in_seconds: How long the URLs should be valid
             force_cache_refresh: Whether to force regeneration of thumbnails
+
+        TODO: refactor to enable force_cache_refresh (to update against existing entity_uuid! that was not working previously...so took out...)
         """
         if not file_keys:
             return []
@@ -188,21 +193,14 @@ class MediaVault:
         # Get existing entries from DB
         file_entries_from_db = []
 
-        if not force_cache_refresh:
-            file_entries_from_db.extend(
-                self.db_client.get_file_entries_by_file_keys(file_keys)
-            )
-            # If record exists but thumbnail is null, it was tried before so skip
-            found_file_keys = {
-                file_entry.file_key
-                for file_entry in file_entries_from_db
-                if file_entry.thumbnail_key is not None
-            }
-            file_keys_to_refresh = [
-                file_key for file_key in file_keys if file_key not in found_file_keys
-            ]
-        else:
-            file_keys_to_refresh = file_keys
+        file_entries_from_db.extend(
+            self.db_client.get_file_entries_by_file_keys(file_keys)
+        )
+        # remove any found keys from list of new db entries
+        found_file_keys = {file_entry.file_key for file_entry in file_entries_from_db}
+        file_keys_to_refresh = [
+            file_key for file_key in file_keys if file_key not in found_file_keys
+        ]
 
         # Generate new thumbnails if needed
         if file_keys_to_refresh:
@@ -350,8 +348,7 @@ class MediaVault:
 
     def _get_cache_key_mappings(
         self,
-        sorted_file_entries: list[libression.entities.db.DBFileEntry],
-        sorted_file_key_mappings: list[libression.entities.io.FileKeyMapping],
+        entries_mappings_dict: dict[str, _InterimFileProcessContext],
     ) -> list[tuple[str, libression.entities.io.FileKeyMapping | None]]:
         """
         Key is file_key, value is old cache_key with new cache_key (if exists)
@@ -359,17 +356,15 @@ class MediaVault:
 
         output: list[tuple[str, libression.entities.io.FileKeyMapping | None]] = []
 
-        for file_entry, file_key_mapping in zip(
-            sorted_file_entries, sorted_file_key_mappings
-        ):
-            old_thumbnail_key = file_entry.thumbnail_key
+        for file_key, file_entry_with_mapping in entries_mappings_dict.items():
+            old_thumbnail_key = file_entry_with_mapping.file_entry.thumbnail_key
             if old_thumbnail_key is None:
-                output.append((file_entry.file_key, None))
+                output.append((file_key, None))
             else:
                 if old_thumbnail_key.endswith(DEFAULT_CACHE_STATIC_SUFFIX):
-                    new_thumbnail_key = f"{file_key_mapping.destination_key}_{DEFAULT_CACHE_STATIC_SUFFIX}"
+                    new_thumbnail_key = f"{file_entry_with_mapping.file_key_mapping.destination_key}_{DEFAULT_CACHE_STATIC_SUFFIX}"
                 elif old_thumbnail_key.endswith(DEFAULT_CACHE_DYNAMIC_SUFFIX):
-                    new_thumbnail_key = f"{file_key_mapping.destination_key}_{DEFAULT_CACHE_DYNAMIC_SUFFIX}"
+                    new_thumbnail_key = f"{file_entry_with_mapping.file_key_mapping.destination_key}_{DEFAULT_CACHE_DYNAMIC_SUFFIX}"
                 else:
                     raise ValueError(
                         f"Thumbnail key {old_thumbnail_key} does not end with {DEFAULT_CACHE_STATIC_SUFFIX} or {DEFAULT_CACHE_DYNAMIC_SUFFIX}"
@@ -377,7 +372,7 @@ class MediaVault:
 
                 output.append(
                     (
-                        file_entry.file_key,
+                        file_key,
                         libression.entities.io.FileKeyMapping(
                             source_key=old_thumbnail_key,
                             destination_key=new_thumbnail_key,
@@ -395,7 +390,6 @@ class MediaVault:
         """
         Assume:
         - No duplications in file names
-        - All cache is present
         """
         # Prep for copy (align db, create cache destination keys)
         existing_db_entries = self.db_client.get_file_entries_by_file_keys(
@@ -407,77 +401,81 @@ class MediaVault:
                 "File key mappings and existing DB entries must be the same length"
             )
 
-        sorted_file_key_mappings = sorted(file_key_mappings, key=lambda x: x.source_key)
-        sorted_existing_db_entries = sorted(
-            existing_db_entries, key=lambda x: x.file_key
-        )
+        file_entries_with_key_mappings = dict()
 
-        sorted_cache_key_mappings = self._get_cache_key_mappings(
-            sorted_file_entries=sorted_existing_db_entries,
-            sorted_file_key_mappings=sorted_file_key_mappings,
+        file_key_mappings_dict = {x.source_key: x for x in file_key_mappings}
+        existing_db_entries_dict = {x.file_key: x for x in existing_db_entries}
+
+        for file_key in file_key_mappings_dict.keys():
+            file_entries_with_key_mappings[file_key] = _InterimFileProcessContext(
+                file_entry=existing_db_entries_dict[file_key],
+                file_key_mapping=file_key_mappings_dict[file_key],
+            )
+
+        cache_key_mappings = self._get_cache_key_mappings(
+            file_entries_with_key_mappings,
         )
 
         # Copy data
         data_copy_responses = await self.data_io_handler.copy(
-            sorted_file_key_mappings,
+            file_key_mappings,
             delete_source=delete_source,
         )
 
         await self.cache_io_handler.copy(
-            [x[1] for x in sorted_cache_key_mappings if x[1] is not None],
+            [x[1] for x in cache_key_mappings if x[1] is not None],
             delete_source=delete_source,
         )  # currently ignore ...
 
         # Register db
         file_actions_to_register = []
 
-        for file_entry, file_key_mapping, cache_key_mapping, data_copy_response in zip(
-            sorted_existing_db_entries,
-            sorted_file_key_mappings,
-            sorted_cache_key_mappings,
-            data_copy_responses,
-        ):  # all in same order (file_key as sort key))
+        cache_key_mappings_dict = {x[0]: x[1] for x in cache_key_mappings}
+        data_copy_responses_dict = {x.file_key: x for x in data_copy_responses}
+
+        #######  *********************** CHECK WHICH FILE KEY?!? not sure if source/destination mixup?
+        for file_key, file_entry_with_mapping in file_entries_with_key_mappings.items():
+            data_copy_response = data_copy_responses_dict[file_key]
+
             if not data_copy_response.success:
                 row = libression.entities.db.existing_db_file_entry(
-                    file_key=file_entry.file_key,
-                    file_entity_uuid=file_entry.file_entity_uuid,
+                    file_key=file_key,
+                    file_entity_uuid=file_entry_with_mapping.file_entry.file_entity_uuid,
                     action_type=libression.entities.db.DBFileAction.MISSING,
                 )
                 file_actions_to_register.append(row)
             else:
                 new_thumbnail_key: str | None = None
-                new_thumbnail_file_key_mapping = cache_key_mapping[1]
 
-                if isinstance(
-                    new_thumbnail_file_key_mapping,
-                    libression.entities.io.FileKeyMapping,
+                if new_thumbnail_file_key_mapping := cache_key_mappings_dict.get(
+                    file_key
                 ):
                     new_thumbnail_key = new_thumbnail_file_key_mapping.destination_key
 
                 if delete_source:  # MOVE
                     row = libression.entities.db.existing_db_file_entry(
                         # New location
-                        file_key=file_key_mapping.destination_key,
+                        file_key=file_entry_with_mapping.file_key_mapping.destination_key,
                         thumbnail_key=new_thumbnail_key,
                         action_type=libression.entities.db.DBFileAction.MOVE,
                         # Preserve the rest
-                        file_entity_uuid=file_entry.file_entity_uuid,
-                        thumbnail_mime_type=file_entry.thumbnail_mime_type,
-                        thumbnail_checksum=file_entry.thumbnail_checksum,
-                        thumbnail_phash=file_entry.thumbnail_phash,
-                        mime_type=file_entry.mime_type,
-                        tags=file_entry.tags,
+                        file_entity_uuid=file_entry_with_mapping.file_entry.file_entity_uuid,
+                        thumbnail_mime_type=file_entry_with_mapping.file_entry.thumbnail_mime_type,
+                        thumbnail_checksum=file_entry_with_mapping.file_entry.thumbnail_checksum,
+                        thumbnail_phash=file_entry_with_mapping.file_entry.thumbnail_phash,
+                        mime_type=file_entry_with_mapping.file_entry.mime_type,
+                        tags=file_entry_with_mapping.file_entry.tags,
                     )
                     file_actions_to_register.append(row)
                 else:  # COPY
                     row = libression.entities.db.new_db_file_entry(
-                        file_key=file_key_mapping.destination_key,  # new location
+                        file_key=file_entry_with_mapping.file_key_mapping.destination_key,  # new location
                         thumbnail_key=new_thumbnail_key,
-                        thumbnail_mime_type=file_entry.thumbnail_mime_type,
-                        thumbnail_checksum=file_entry.thumbnail_checksum,
-                        thumbnail_phash=file_entry.thumbnail_phash,
-                        mime_type=file_entry.mime_type,
-                        tags=file_entry.tags,
+                        thumbnail_mime_type=file_entry_with_mapping.file_entry.thumbnail_mime_type,
+                        thumbnail_checksum=file_entry_with_mapping.file_entry.thumbnail_checksum,
+                        thumbnail_phash=file_entry_with_mapping.file_entry.thumbnail_phash,
+                        mime_type=file_entry_with_mapping.file_entry.mime_type,
+                        tags=file_entry_with_mapping.file_entry.tags,
                     )
                     file_actions_to_register.append(row)
 

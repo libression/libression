@@ -82,12 +82,12 @@ def _process_video_frames(
     container: av.container.Container,
     width_in_pixels: int,
     frame_count: int = 5,
-) -> bytes | None:
+) -> bytes:
     """Common video processing logic for both URL and byte stream inputs"""
     try:
         if not container.streams.video:
             logger.error("No video stream found")
-            return None
+            return b""  # Return empty bytes for invalid images
 
         stream = container.streams.video[0]
         frames: list[PIL.Image.Image] = []
@@ -195,20 +195,20 @@ def _process_video_frames(
 
     except Exception as e:
         logger.error(f"Error processing video frames: {e}")
-        return None
+        return b""  # Return empty bytes for invalid images
 
 
 def _video_thumbnail_from_av(
     byte_stream: typing.BinaryIO,
     width_in_pixels: int,
     frame_count: int = 5,
-) -> bytes | None:
+) -> bytes:
     try:
         container = av.open(byte_stream)
         return _process_video_frames(container, width_in_pixels, frame_count)
-    except av.AVError as e:
+    except (av.error.OSError, av.error.InvalidDataError) as e:
         logger.error(f"Error processing video/gif from byte stream: {e}")
-        return None
+        return b""  # Return empty bytes for invalid images
     finally:
         if "container" in locals():
             container.close()
@@ -218,13 +218,13 @@ def _video_thumbnail_from_av_with_url(
     url: str,
     width_in_pixels: int,
     frame_count: int = 5,
-) -> bytes | None:
+) -> bytes:
     try:
         container = av.open(url)
         return _process_video_frames(container, width_in_pixels, frame_count)
-    except av.AVError as e:
+    except (av.error.OSError, av.error.InvalidDataError) as e:
         logger.error(f"Error processing video/gif from URL: {e}")
-        return None
+        return b""  # Return empty bytes for invalid images
     finally:
         if "container" in locals():
             container.close()
@@ -234,7 +234,7 @@ def generate(
     byte_stream: typing.BinaryIO,
     width_in_pixels: int,
     mime_type: libression.entities.media.SupportedMimeType,
-) -> bytes | None:
+) -> bytes:
     if mime_type in libression.entities.media.HEIC_PROCESSING_MIME_TYPES:
         return _heif_thumbnail_from_pillow(byte_stream, width_in_pixels)
     elif mime_type in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES:
@@ -242,14 +242,14 @@ def generate(
     elif mime_type in libression.entities.media.AV_PROCESSING_MIME_TYPES:
         return _video_thumbnail_from_av(byte_stream, width_in_pixels)
 
-    return None
+    return b""  # Return empty bytes for invalid images
 
 
 def generate_from_presigned_url(
     presigned_url: str,
     width_in_pixels: int,
     mime_type: libression.entities.media.SupportedMimeType,
-) -> bytes | None:
+) -> bytes:
     if mime_type in libression.entities.media.AV_PROCESSING_MIME_TYPES:
         return _video_thumbnail_from_av_with_url(presigned_url, width_in_pixels)
 
@@ -265,7 +265,7 @@ def generate_from_presigned_url(
             return _heif_thumbnail_from_pillow(byte_stream, width_in_pixels)
         elif mime_type in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES:
             return _image_thumbnail_from_opencv(byte_stream, width_in_pixels)
-        return None
+        return b""  # Return empty bytes for invalid images
     finally:
         if "byte_stream" in locals() and byte_stream is not None:
             byte_stream.close()

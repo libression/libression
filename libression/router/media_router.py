@@ -57,7 +57,7 @@ class UploadRequest(pydantic.BaseModel):
 
 class GetFilesInfoRequest(pydantic.BaseModel):
     file_keys: list[str]
-    force_refresh: bool = False
+    force_refresh: bool = False  # Not used yet...
 
 
 class GetFileUrlsRequest(pydantic.BaseModel):
@@ -178,7 +178,6 @@ async def get_files_info(
     """Get file information including thumbnail details."""
     result = await request.app.state.media_vault.get_files_info(
         file_keys=get_files_info_request.file_keys,
-        force_cache_refresh=get_files_info_request.force_refresh,
     )
     return FileEntries(
         files=[FileEntry.model_validate(entry.to_dict()) for entry in result]

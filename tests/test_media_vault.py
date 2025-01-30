@@ -32,6 +32,91 @@ async def test_get_files_info_empty_input(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "specified_file_extension,io_handler_fixture_name,thumbnail_should_exist",
+    [
+        # supported formats (should have thumbnails, even if empty)
+        ("png", "docker_webdav_io_handler", True),
+        ("jpg", "docker_webdav_io_handler", True),
+        ("jpeg", "docker_webdav_io_handler", True),
+        ("gif", "docker_webdav_io_handler", True),
+        ("webp", "docker_webdav_io_handler", True),
+        # unsupported formats (no thumbnails)
+        ("pdf", "docker_webdav_io_handler", False),
+        ("docx", "docker_webdav_io_handler", False),
+        ("exe", "docker_webdav_io_handler", False),
+    ],
+)
+async def test_get_files_info_rubbish_file(
+    db_client,
+    io_handler_fixture_name,
+    request: pytest.FixtureRequest,
+    specified_file_extension,
+    thumbnail_should_exist,
+):
+    file_key = f"{uuid.uuid4()}.{specified_file_extension}"
+
+    io_handler = request.getfixturevalue(io_handler_fixture_name)
+    media_vault = MediaVault(
+        data_io_handler=io_handler,
+        cache_io_handler=io_handler,
+        db_client=db_client,
+        thumbnail_width_in_pixels=200,
+        chunk_byte_size=8192,
+    )
+
+    byte_stream = io.BytesIO(b"asdfasdf")
+    await io_handler.upload(
+        libression.entities.io.FileStreamInfos(
+            file_streams={
+                file_key: libression.entities.io.FileStreamInfo(
+                    file_stream=byte_stream,
+                    mime_type=libression.entities.media.SupportedMimeType.PNG,
+                )
+            }
+        )
+    )
+
+    initial_result = await media_vault.get_files_info([file_key])
+
+    assert len(initial_result) == 1
+
+    copied_file_key = f"{uuid.uuid4()}.{specified_file_extension}"
+    await media_vault.copy(
+        [
+            libression.entities.io.FileKeyMapping(
+                source_key=file_key,
+                destination_key=copied_file_key,
+            ),
+        ],
+        delete_source=False,
+    )
+
+    moved_file_key = f"{uuid.uuid4()}.{specified_file_extension}"
+    await media_vault.copy(
+        [
+            libression.entities.io.FileKeyMapping(
+                source_key=file_key,
+                destination_key=moved_file_key,
+            ),
+        ],
+        delete_source=True,
+    )
+
+    results = await media_vault.get_files_info([copied_file_key, moved_file_key])
+
+    assert len(results) == 2  # moved and copied should be present ...
+    if thumbnail_should_exist:
+        assert all(x.thumbnail_key is not None for x in results)
+    else:
+        assert all(x.thumbnail_key is None for x in results)
+
+    # Teardown
+    for result in results:
+        await media_vault.delete([result])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "io_handler_fixture_name, minimal_image",
     [
         ("docker_webdav_io_handler", "png"),
