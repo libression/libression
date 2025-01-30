@@ -119,7 +119,16 @@ class MediaVault:
             verify=False,
             follow_redirects=True,
         )
-        url_header_response.raise_for_status()
+        try:
+            # TODO: handle the 404s outside of this function...
+            url_header_response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Error getting thumbnail for file_key {file_key}: {e}")
+            return libression.thumbnail.ThumbnailInfo(
+                thumbnail=None,
+                phash=None,
+                checksum=None,
+            ), None
 
         original_mime_type = libression.entities.media.SupportedMimeType.best_guess(
             filename=file_key,

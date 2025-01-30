@@ -9,23 +9,53 @@ import httpx
 import libression.entities.io
 import libression.io_handler.webdav
 
-BASE_URL = "https://localhost"
+REAL_PNG_LOCCAL_PATH = "/home/edesktop/Downloads/IMG_1040.PNG"
+BASE_URL = "https://localhost:8443"
 URL_PATH = "libression_photos"
 PRESIGNED_URL_PATH = "readonly_libression_photos"
-USERNAME = "chilledgeek"
-PASSWORD = "chilledgeek"
-SECRET_KEY = "chilledgeek_secret_key"
+USERNAME = "libression_user"
+PASSWORD = "libression_password"
+SECRET_KEY = "libression_secret_key"
 CHUNK_BYTE_SIZE = 1024 * 1024 * 5  # 5MB
 
 # Set test vars
 TEST_DATA = b"Hello WebDAV!"
-FILE_KEY = f"{uuid.uuid4()}.txt"
+FILE_KEY = f"{uuid.uuid4()}.png"
 FOLDER_NAME = str(uuid.uuid4())
 
 
 # Configure logging at the module level
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+
+async def upload_real_photo_to_webdav():
+    # Initialize handler (adjust these credentials for your WebDAV server)
+    handler = libression.io_handler.webdav.WebDAVIOHandler(
+        base_url=BASE_URL,
+        username=USERNAME,
+        password=PASSWORD,
+        secret_key=SECRET_KEY,
+        url_path=URL_PATH,
+        presigned_url_path=PRESIGNED_URL_PATH,
+        verify_ssl=False,
+    )
+
+    # Test upload
+    with open(REAL_PNG_LOCCAL_PATH, "rb") as f:
+        file_stream = io.BytesIO(f.read())
+
+    test_file_stream1 = libression.entities.io.FileStreamInfo(
+        file_stream=file_stream,
+    )
+
+    test_file_streams = libression.entities.io.FileStreamInfos(
+        file_streams={
+            FILE_KEY: test_file_stream1,
+        }
+    )
+
+    await handler.upload(test_file_streams, chunk_byte_size=CHUNK_BYTE_SIZE)
 
 
 async def manual_test_webdav():
@@ -194,4 +224,5 @@ async def manual_test_webdav():
 
 
 if __name__ == "__main__":
-    asyncio.run(manual_test_webdav())
+    asyncio.run(upload_real_photo_to_webdav())
+    # asyncio.run(manual_test_webdav())

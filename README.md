@@ -143,3 +143,11 @@ htpasswd -cb .htpasswd libression_user libression_password
 ```
 
 docker compose -f docker-compose.yml up -d
+
+
+
+
+# Frontend
+cd frontend
+npm install
+npm run dev
