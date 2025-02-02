@@ -415,9 +415,8 @@ def test_different_file_formats_integration_docker(minimal_image):
             f"{base_libression_url}/libression/v1/files_info",
             json={"file_keys": [file_key]},
         )
-        assert (
-            bad_get_files_info_response.status_code == 500
-        )  # Not good code, but not designed to be called like this
+        assert bad_get_files_info_response.status_code == 200
+        assert len(bad_get_files_info_response.json()["files"]) == 0
 
         bad_file_urls_response = httpx.post(
             f"{base_libression_url}/libression/v1/files_urls",
@@ -451,23 +450,21 @@ def test_different_file_formats_integration_docker(minimal_image):
 
 
 @pytest.mark.parametrize(
-    "specified_extension,thumbnail_should_exist",
+    "specified_extension",
     [
-        # supported (thumbnails exists even though empty)
-        ("png", True),
-        ("jpg", True),
-        ("jpeg", True),
-        ("gif", True),
-        ("webp", True),
+        # supported, but no thumbnails as fails rendering
+        ("png"),
+        ("jpg"),
+        ("jpeg"),
+        ("gif"),
+        ("webp"),
         # unsupported, no thumbnails
-        ("pdf", False),
-        ("docx", False),
-        ("exe", False),
+        ("pdf"),
+        ("docx"),
+        ("exe"),
     ],
 )
-def test_malformated_file_integration_docker(
-    specified_extension, thumbnail_should_exist
-):
+def test_malformated_file_integration_docker(specified_extension):
     base_libression_url = "http://localhost:8000"
     local_webdav_url = (
         "https://localhost:8443"  # nginx self-signed cert (local address)
@@ -492,6 +489,11 @@ def test_malformated_file_integration_docker(
         },
     )
     assert upload_response.status_code == 200
+    assert len(upload_response.json()["files"]) == 1
+    assert (
+        upload_response.json()["files"][0]["thumbnail_key"] is None
+    )  # can't render...
+
     original_file_entry = libression.router.media_router.FileEntry.model_validate(
         upload_response.json()["files"][0]
     )
@@ -570,25 +572,7 @@ def test_malformated_file_integration_docker(
         assert file_get_response.content == filebytes
 
         # Check thumbnail is accessible
-        if thumbnail_should_exist:
-            assert file_entry.thumbnail_key is not None
-            thumbnail_urls_response = httpx.post(
-                f"{base_libression_url}/libression/v1/thumbnails_urls",
-                json={"file_keys": [file_entry.thumbnail_key]},
-            ).json()
-
-            assert len(thumbnail_urls_response["paths"]) == 1
-
-            corrected_thumbnail_base_url = thumbnail_urls_response["base_url"].replace(
-                docker_webdav_url, local_webdav_url
-            )
-
-            adjusted_thumbnail_url = f"{corrected_thumbnail_base_url}/{thumbnail_urls_response['paths'][file_entry.thumbnail_key]}"
-            thumbnail_get_response = httpx.get(adjusted_thumbnail_url, verify=False)
-            assert thumbnail_get_response.status_code == 200
-            assert len(thumbnail_get_response.content) == 0
-        else:
-            assert file_entry.thumbnail_key is None
+        assert file_entry.thumbnail_key is None
 
     # Update tags
     update_tags_response = httpx.post(
@@ -650,9 +634,8 @@ def test_malformated_file_integration_docker(
             f"{base_libression_url}/libression/v1/files_info",
             json={"file_keys": [file_key]},
         )
-        assert (
-            bad_get_files_info_response.status_code == 500
-        )  # Not good code, but not designed to be called like this
+        assert bad_get_files_info_response.status_code == 200
+        assert len(bad_get_files_info_response.json()["files"]) == 0
 
         bad_file_urls_response = httpx.post(
             f"{base_libression_url}/libression/v1/files_urls",

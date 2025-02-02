@@ -128,6 +128,7 @@ class MediaVault:
                 thumbnail=None,
                 phash=None,
                 checksum=None,
+                raw_file_found=False,  # don't register to db at all?
             ), None
 
         original_mime_type = libression.entities.media.SupportedMimeType.best_guess(
@@ -135,10 +136,18 @@ class MediaVault:
             given_mime_type_str=url_header_response.headers.get("content-type"),
         )
 
+        if original_mime_type is None:
+            # skip thumbnail generation ...
+            return libression.thumbnail.ThumbnailInfo(
+                thumbnail=None,
+                phash=None,
+                checksum=None,
+            ), None
+
         thumbnail_file = thumbnail_file_from_original_file(
             file_key=file_key,
             mime_type=original_mime_type,
-        )
+        )  # just to render the file name (correct extension)
 
         if thumbnail_file is None:
             return libression.thumbnail.ThumbnailInfo(
@@ -150,7 +159,7 @@ class MediaVault:
         # Generate thumbnail
         thumbnail_info = libression.thumbnail.generate_thumbnail_info(
             presigned_url=original_url,
-            thumbnail_mime_type=thumbnail_file.thumbnail_mime_type,
+            original_mime_type=original_mime_type,
             width_in_pixels=self.thumbnail_width_in_pixels,
         )
 
@@ -159,13 +168,19 @@ class MediaVault:
     async def _save_thumbnail_to_cache(
         self,
         thumbnail_info: libression.thumbnail.ThumbnailInfo,
-        thumbnail_file: ThumbnailFile | None,
+        thumbnail_file: ThumbnailFile,
     ) -> None:
-        if thumbnail_file is None:
-            return None  # No thumbnail ...
+        if thumbnail_info.raw_file_found is False:
+            raise ValueError(
+                "Shouldn't be here...should already have been filtered out. "
+                f"Raw file not found for thumbnail_file {thumbnail_file.key}"
+            )
 
         if (thumbnail_bytes := thumbnail_info.thumbnail) is None:
-            raise ValueError("Thumbnail should exist at this point...")
+            raise ValueError(
+                "Shouldn't be here...should already have been filtered out. "
+                f"Thumbnail_bytes not found for thumbnail_file {thumbnail_file.key}"
+            )
 
         thumbnail_file_stream = libression.entities.io.FileStreamInfo(
             file_stream=io.BytesIO(thumbnail_bytes),
@@ -249,6 +264,16 @@ class MediaVault:
                     thumbnail_info,
                     thumbnail_file,
                 ) in thumbnail_results.items():
+                    # Skip validation if any of the following:
+                    if thumbnail_file is None:
+                        continue
+
+                    if thumbnail_info.raw_file_found is False:
+                        continue
+
+                    if thumbnail_info.thumbnail is None:
+                        continue
+
                     saving_tasks.append(
                         self._save_thumbnail_to_cache(
                             thumbnail_info=thumbnail_info,
@@ -266,6 +291,9 @@ class MediaVault:
                     thumbnail_info,
                     thumbnail_file,
                 ) in thumbnail_results.items():
+                    if not thumbnail_info.raw_file_found:
+                        continue  # don't register to db at all
+
                     mime_type = (
                         thumbnail_file.original_mime_type.value
                         if thumbnail_file is not None
@@ -278,7 +306,11 @@ class MediaVault:
                     thumbnail_phash: str | None = None
 
                     if thumbnail_file is not None:  # fill thumbnail data if exists
-                        thumbnail_key = thumbnail_file.key
+                        if thumbnail_info.thumbnail:
+                            thumbnail_key = (
+                                thumbnail_file.key
+                            )  # only specify if meaningful
+
                         thumbnail_checksum = thumbnail_info.checksum
                         thumbnail_phash = thumbnail_info.phash
 

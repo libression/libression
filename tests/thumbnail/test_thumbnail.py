@@ -81,9 +81,9 @@ def test_generate_thumbnail_info_invalid_image(mock_presigned_url):
         )
 
     assert isinstance(result, libression.thumbnail.ThumbnailInfo)
-    assert result.thumbnail == b"", "Invalid image should result in empty bytes"
-    assert isinstance(result.phash, str)
-    assert result.checksum is None, "Invalid image should have no checksum"
+    assert result.thumbnail is None, "Invalid image should result in None"
+    assert result.phash is None
+    assert result.checksum is None
 
 
 def test_generate_thumbnail_info_respects_width(mock_presigned_url, large_image):

@@ -32,18 +32,18 @@ async def test_get_files_info_empty_input(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "specified_file_extension,io_handler_fixture_name,thumbnail_should_exist",
+    "specified_file_extension,io_handler_fixture_name",
     [
-        # supported formats (should have thumbnails, even if empty)
-        ("png", "docker_webdav_io_handler", True),
-        ("jpg", "docker_webdav_io_handler", True),
-        ("jpeg", "docker_webdav_io_handler", True),
-        ("gif", "docker_webdav_io_handler", True),
-        ("webp", "docker_webdav_io_handler", True),
+        # supported formats (tried rendering thumbnails but failed)
+        ("png", "docker_webdav_io_handler"),
+        ("jpg", "docker_webdav_io_handler"),
+        ("jpeg", "docker_webdav_io_handler"),
+        ("gif", "docker_webdav_io_handler"),
+        ("webp", "docker_webdav_io_handler"),
         # unsupported formats (no thumbnails)
-        ("pdf", "docker_webdav_io_handler", False),
-        ("docx", "docker_webdav_io_handler", False),
-        ("exe", "docker_webdav_io_handler", False),
+        ("pdf", "docker_webdav_io_handler"),
+        ("docx", "docker_webdav_io_handler"),
+        ("exe", "docker_webdav_io_handler"),
     ],
 )
 async def test_get_files_info_rubbish_file(
@@ -51,7 +51,6 @@ async def test_get_files_info_rubbish_file(
     io_handler_fixture_name,
     request: pytest.FixtureRequest,
     specified_file_extension,
-    thumbnail_should_exist,
 ):
     file_key = f"{uuid.uuid4()}.{specified_file_extension}"
 
@@ -105,10 +104,7 @@ async def test_get_files_info_rubbish_file(
     results = await media_vault.get_files_info([copied_file_key, moved_file_key])
 
     assert len(results) == 2  # moved and copied should be present ...
-    if thumbnail_should_exist:
-        assert all(x.thumbnail_key is not None for x in results)
-    else:
-        assert all(x.thumbnail_key is None for x in results)
+    assert all(x.thumbnail_key is None for x in results)
 
     # Teardown
     for result in results:

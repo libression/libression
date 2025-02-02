@@ -19,17 +19,27 @@ def _heif_thumbnail_from_pillow(
     byte_stream: typing.BinaryIO,
     width_in_pixels: int,
 ) -> bytes:
+    logger.debug("Starting HEIF thumbnail generation")
     # First convert HEIF to numpy array
     with PIL.Image.open(byte_stream) as img:
+        logger.debug(
+            f"Opened HEIF image: format={img.format}, size={img.size}, mode={img.mode}"
+        )
+
         # Convert to RGB (HEIF can be in various color spaces)
         img_rgb = img.convert("RGB")
+        logger.debug("Converted image to RGB mode")
+
         # Convert to numpy array for OpenCV processing
         img_array = numpy.array(img_rgb)
+        logger.debug(f"Converted to numpy array: shape={img_array.shape}")
+
         # Free up PIL Image memory
         img_rgb.close()
 
     # Use OpenCV for resizing (more memory efficient)
     height = int(img_array.shape[0] * width_in_pixels / img_array.shape[1])
+    logger.debug(f"Resizing to {width_in_pixels}x{height}")
     resized = cv2.resize(
         img_array, (width_in_pixels, height), interpolation=cv2.INTER_AREA
     )
@@ -39,13 +49,16 @@ def _heif_thumbnail_from_pillow(
 
     # Encode to JPEG
     _, buffer = cv2.imencode(".jpg", resized_bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    return buffer.tobytes()
+    result = buffer.tobytes()
+    logger.debug(f"Successfully generated JPEG thumbnail: size={len(result)} bytes")
+
+    return result
 
 
 def _image_thumbnail_from_opencv(
     byte_stream: typing.BinaryIO,
     width_in_pixels: int,
-) -> bytes:
+) -> bytes | None:
     try:
         byte_stream.seek(0)
 
@@ -59,7 +72,7 @@ def _image_thumbnail_from_opencv(
 
         if img is None:
             logger.error("Failed to decode image")
-            return b""  # Return empty bytes for invalid images
+            return None  # Return empty bytes for invalid images
 
         # Calculate new height maintaining aspect ratio
         height = int(img.shape[0] * width_in_pixels / img.shape[1])
@@ -71,7 +84,7 @@ def _image_thumbnail_from_opencv(
         success, buffer = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 85])
         if not success:
             logger.error("Failed to encode image")
-            return b""  # Return empty bytes for invalid images
+            return None  # Return empty bytes for invalid images
 
         return buffer.tobytes()
     finally:
@@ -82,12 +95,12 @@ def _process_video_frames(
     container: av.container.Container,
     width_in_pixels: int,
     frame_count: int = 5,
-) -> bytes:
+) -> bytes | None:
     """Common video processing logic for both URL and byte stream inputs"""
     try:
         if not container.streams.video:
             logger.error("No video stream found")
-            return b""  # Return empty bytes for invalid images
+            return None  # Return empty bytes for invalid images
 
         stream = container.streams.video[0]
         frames: list[PIL.Image.Image] = []
@@ -195,20 +208,20 @@ def _process_video_frames(
 
     except Exception as e:
         logger.error(f"Error processing video frames: {e}")
-        return b""  # Return empty bytes for invalid images
+        return None  # Return empty bytes for invalid images
 
 
 def _video_thumbnail_from_av(
     byte_stream: typing.BinaryIO,
     width_in_pixels: int,
     frame_count: int = 5,
-) -> bytes:
+) -> bytes | None:
     try:
         container = av.open(byte_stream)
         return _process_video_frames(container, width_in_pixels, frame_count)
     except (av.error.OSError, av.error.InvalidDataError) as e:
         logger.error(f"Error processing video/gif from byte stream: {e}")
-        return b""  # Return empty bytes for invalid images
+        return None  # Return empty bytes for invalid images
     finally:
         if "container" in locals():
             container.close()
@@ -218,13 +231,13 @@ def _video_thumbnail_from_av_with_url(
     url: str,
     width_in_pixels: int,
     frame_count: int = 5,
-) -> bytes:
+) -> bytes | None:
     try:
         container = av.open(url)
         return _process_video_frames(container, width_in_pixels, frame_count)
     except (av.error.OSError, av.error.InvalidDataError) as e:
         logger.error(f"Error processing video/gif from URL: {e}")
-        return b""  # Return empty bytes for invalid images
+        return None  # Return empty bytes for invalid images
     finally:
         if "container" in locals():
             container.close()
@@ -234,7 +247,7 @@ def generate(
     byte_stream: typing.BinaryIO,
     width_in_pixels: int,
     mime_type: libression.entities.media.SupportedMimeType,
-) -> bytes:
+) -> bytes | None:
     if mime_type in libression.entities.media.HEIC_PROCESSING_MIME_TYPES:
         return _heif_thumbnail_from_pillow(byte_stream, width_in_pixels)
     elif mime_type in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES:
@@ -242,15 +255,15 @@ def generate(
     elif mime_type in libression.entities.media.AV_PROCESSING_MIME_TYPES:
         return _video_thumbnail_from_av(byte_stream, width_in_pixels)
 
-    return b""  # Return empty bytes for invalid images
+    return None  # Return empty bytes for invalid images
 
 
 def generate_from_presigned_url(
     presigned_url: str,
+    original_mime_type: libression.entities.media.SupportedMimeType,
     width_in_pixels: int,
-    mime_type: libression.entities.media.SupportedMimeType,
-) -> bytes:
-    if mime_type in libression.entities.media.AV_PROCESSING_MIME_TYPES:
+) -> bytes | None:
+    if original_mime_type in libression.entities.media.AV_PROCESSING_MIME_TYPES:
         return _video_thumbnail_from_av_with_url(presigned_url, width_in_pixels)
 
     # Not video, so not as big, get entire file
@@ -261,11 +274,14 @@ def generate_from_presigned_url(
         response.raise_for_status()
         byte_stream = io.BytesIO(response.content)
 
-        if mime_type in libression.entities.media.HEIC_PROCESSING_MIME_TYPES:
+        if original_mime_type in libression.entities.media.HEIC_PROCESSING_MIME_TYPES:
             return _heif_thumbnail_from_pillow(byte_stream, width_in_pixels)
-        elif mime_type in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES:
+        elif (
+            original_mime_type
+            in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES
+        ):
             return _image_thumbnail_from_opencv(byte_stream, width_in_pixels)
-        return b""  # Return empty bytes for invalid images
+        return None  # Return empty bytes for invalid images
     finally:
         if "byte_stream" in locals() and byte_stream is not None:
             byte_stream.close()
