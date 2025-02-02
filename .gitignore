@@ -41,5 +41,8 @@ dmypy.json
 # Project specific
 **/.minio.sys/
 
+# Frontend
+**/node_modules/
+
 # OpenAPI spec
 openapi.json
