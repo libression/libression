@@ -48,25 +48,52 @@ export default function Gallery({
   const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>(
     {},
   );
-  const [fileUrls, setFileUrls] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    setDisplayedFiles(files.slice(0, page * 200));
+    console.log("Raw files from backend:", files);
+    console.log(
+      "All files:",
+      files.map((f) => ({
+        key: f.file_key,
+        decoded: decodeURIComponent(f.file_key),
+        hasThumb: !!f.thumbnail_key,
+        thumbKey: f.thumbnail_key,
+        phash: f.thumbnail_phash,
+        mime: f.thumbnail_mime_type,
+      })),
+    );
+
+    // Ensure we're getting all files, including those with spaces
+    const processedFiles = files.map((file) => ({
+      ...file,
+      file_key: decodeURIComponent(file.file_key),
+      thumbnail_key: file.thumbnail_key
+        ? decodeURIComponent(file.thumbnail_key)
+        : null,
+    }));
+
+    setDisplayedFiles(processedFiles.slice(0, page * 200));
   }, [files, page]);
 
   useEffect(() => {
     const loadThumbnailUrls = async () => {
       const urls: Record<string, string> = {};
       for (const file of displayedFiles) {
-        if (
-          file.file_key &&
-          file.thumbnail_key &&
-          !thumbnailUrls[file.file_key]
-        ) {
-          const url = await apiService.getThumbnailUrl(file.thumbnail_key);
-          // Only store non-empty URLs
-          if (url && url.trim().length > 0) {
-            urls[file.file_key] = url;
+        if (file.file_key && file.thumbnail_key) {
+          try {
+            // Use encoded thumbnail key for API call
+            const encodedThumbKey = encodeURIComponent(file.thumbnail_key);
+            const url = await apiService.getThumbnailUrl(encodedThumbKey);
+            if (url && url.trim().length > 0) {
+              // Store URL with encoded key
+              const encodedFileKey = encodeURIComponent(file.file_key);
+              urls[encodedFileKey] = url;
+            }
+          } catch (error) {
+            console.error(
+              `Error loading thumbnail for ${file.file_key}:`,
+              error,
+            );
           }
         }
       }
@@ -74,20 +101,6 @@ export default function Gallery({
     };
     loadThumbnailUrls();
   }, [displayedFiles]);
-
-  useEffect(() => {
-    const handleScroll = () => {
-      if (
-        window.innerHeight + document.documentElement.scrollTop !==
-        document.documentElement.offsetHeight
-      )
-        return;
-      setPage((prevPage) => prevPage + 1);
-    };
-
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
 
   const toggleFileSelection = (file: FileEntry) => {
     setSelectedFiles(
@@ -106,57 +119,62 @@ export default function Gallery({
         padding: `${Math.max(thumbnailSize * 0.1, 8)}px`,
       }}
     >
-      {displayedFiles.map((file) => (
-        <div
-          key={file.file_key}
-          className="relative"
-          style={{ width: thumbnailSize, height: thumbnailSize }}
-        >
-          <input
-            type="checkbox"
-            checked={selectedFiles.includes(file.file_key)}
-            onChange={() => toggleFileSelection(file)}
-            className="absolute top-2 left-2 z-10"
-          />
-          <div
-            className="block w-full h-full cursor-pointer"
-            onClick={async (e) => {
-              // If clicking the checkbox area, don't navigate
-              const target = e.target as HTMLInputElement;
-              if (
-                target.type === "checkbox" ||
-                target.closest('input[type="checkbox"]')
-              ) {
-                return;
-              }
+      {displayedFiles.map((file) => {
+        const decodedKey = decodeURIComponent(file.file_key);
+        const thumbnailUrl =
+          thumbnailUrls[decodedKey] || thumbnailUrls[file.file_key];
 
-              onFileClick(file);
-            }}
+        return (
+          <div
+            key={decodedKey}
+            className="relative"
+            style={{ width: thumbnailSize, height: thumbnailSize }}
           >
+            <input
+              type="checkbox"
+              checked={selectedFiles.includes(file.file_key)}
+              onChange={() => toggleFileSelection(file)}
+              className="absolute top-2 left-2 z-10"
+            />
             <div
-              className="w-full h-full bg-cover bg-center"
-              style={{
-                backgroundImage:
-                  thumbnailUrls[file.file_key] && file.thumbnail_phash
-                    ? `url(${thumbnailUrls[file.file_key]})`
-                    : "none",
+              className="block w-full h-full cursor-pointer"
+              onClick={async (e) => {
+                if (
+                  e.target instanceof HTMLInputElement &&
+                  e.target.type === "checkbox"
+                ) {
+                  return;
+                }
+                onFileClick(file);
               }}
             >
-              {thumbnailUrls[file.file_key] && file.thumbnail_phash ? (
-                file.thumbnail_mime_type?.startsWith("image/gif") && (
-                  <img
-                    src={thumbnailUrls[file.file_key]}
-                    alt={file.file_key}
-                    className="w-full h-full object-cover hover:opacity-100 opacity-0 transition-opacity duration-300"
-                  />
-                )
-              ) : (
-                <BrokenImageIcon />
-              )}
+              <div
+                className="w-full h-full bg-cover bg-center"
+                style={{
+                  backgroundImage:
+                    thumbnailUrl && file.thumbnail_phash
+                      ? `url(${thumbnailUrl})`
+                      : "none",
+                }}
+              >
+                {thumbnailUrl && file.thumbnail_phash ? (
+                  file.thumbnail_mime_type?.startsWith("image/gif") && (
+                    <img
+                      src={thumbnailUrl}
+                      alt={decodeURIComponent(
+                        file.file_key.split("/").pop() || "",
+                      )}
+                      className="w-full h-full object-cover hover:opacity-100 opacity-0 transition-opacity duration-300"
+                    />
+                  )
+                ) : (
+                  <BrokenImageIcon />
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
