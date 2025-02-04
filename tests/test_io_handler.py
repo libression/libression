@@ -2,7 +2,6 @@ import pytest
 import io
 from libression.entities.io import FileStreamInfos, FileStreamInfo, FileKeyMapping
 
-
 TEST_DATA = b"Hello Test!"
 
 
@@ -503,3 +502,41 @@ async def test_list_objects_max_depth(
     finally:
         # Clean up all files and directories
         await io_handler.delete(list(nested_files.keys()))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("io_handler_fixture_name", ["docker_webdav_io_handler"])
+async def test_list_objects_filenames_with_spaces(
+    io_handler_fixture_name,
+    dummy_file_key,
+    test_file_stream,
+    request: pytest.FixtureRequest,
+):
+    """Test that max_depth parameter correctly limits directory traversal"""
+
+    io_handler = request.getfixturevalue(io_handler_fixture_name)
+
+    files_with_spaces = {
+        f"1 {dummy_file_key}": test_file_stream,
+        f"level 1/2 {dummy_file_key}": test_file_stream,
+    }
+
+    try:
+        # Upload all files
+        await io_handler.upload(FileStreamInfos(file_streams=files_with_spaces))
+
+        objects_root = await io_handler.list_objects(
+            dirpath="", subfolder_contents=True, max_depth=3
+        )
+
+        assert any(
+            obj.absolute_path == f"1 {dummy_file_key}" for obj in objects_root
+        ), "Should find root file with spaces"
+
+        assert any(
+            obj.absolute_path == f"level 1/2 {dummy_file_key}" for obj in objects_root
+        ), "Should find level 1 file with spaces"
+
+    finally:
+        # Clean up all files and directories
+        await io_handler.delete(list(files_with_spaces.keys()))
