@@ -1,26 +1,52 @@
-version: '3'
 services:
-  web:
+  webdav:
     build:
-        dockerfile: web.Dockerfile
-    ports:
-     - "8000:8000"
+      context: .
+      dockerfile: webdav.Dockerfile
     environment:
-      S3_ENDPOINT_URL: "http://host.docker.internal:9000"
-      S3_ACCESS_KEY_ID: "custom_minioadmin"
-      S3_SECRET: "custom_miniopassword"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      - storage
-  storage:
-    build:
-        dockerfile: storage.Dockerfile
+      - WEBDAV_USER=${WEBDAV_USER:-libression_user}
+      - WEBDAV_PASSWORD=${WEBDAV_PASSWORD:-libression_password}
+      - NGINX_SECURE_LINK_KEY=${NGINX_SECURE_LINK_KEY:-libression_secret_key}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "8443:443" # 443 internal nginx port, 8443 is external host access
     volumes:
-      - "./tests/fixtures:/mount_dir"
+      - webdav_data:/var/www/webdav
+    security_opt:
+      - label:type:httpd_sys_content_t
+      - label:level:s0:c1,c2
+    cap_add:
+      - NET_BIND_SERVICE # Allows the service to bind to privileged ports (<1024)
+      - SETFCAP # Allows setting capabilities on executables
+    sysctls:
+      - net.core.somaxconn=65535 # Maximum length of the listen queue for connections
+    networks:
+      - libression_network # Connects the container to your custom bridge network
+
+  libression:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
     environment:
-      MINIO_ROOT_USER: "custom_minioadmin"
-      MINIO_ROOT_PASSWORD: "custom_miniopassword"
+      - WEBDAV_USER=${WEBDAV_USER:-libression_user}
+      - WEBDAV_PASSWORD=${WEBDAV_PASSWORD:-libression_password}
+      - NGINX_SECURE_LINK_KEY=${NGINX_SECURE_LINK_KEY:-libression_secret_key}
+      - WEBDAV_BASE_URL=https://webdav:443
+      - WEBDAV_VERIFY_SSL=false
+    depends_on:
+      - webdav
+    security_opt:
+      - label:type:httpd_sys_content_t
+      - label:level:s0:c1,c2
+    sysctls:
+      - net.core.somaxconn=65535 # Maximum length of the listen queue for connections
+    networks:
+      - libression_network # Connects the container to your custom bridge network
+
+volumes:
+  webdav_data:
+
+networks:
+  libression_network:
+    driver: bridge
