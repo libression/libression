@@ -50,29 +50,8 @@ export default function Gallery({
   );
 
   useEffect(() => {
-    console.log("Raw files from backend:", files);
-    console.log(
-      "All files:",
-      files.map((f) => ({
-        key: f.file_key,
-        decoded: decodeURIComponent(f.file_key),
-        hasThumb: !!f.thumbnail_key,
-        thumbKey: f.thumbnail_key,
-        phash: f.thumbnail_phash,
-        mime: f.thumbnail_mime_type,
-      })),
-    );
-
-    // Ensure we're getting all files, including those with spaces
-    const processedFiles = files.map((file) => ({
-      ...file,
-      file_key: decodeURIComponent(file.file_key),
-      thumbnail_key: file.thumbnail_key
-        ? decodeURIComponent(file.thumbnail_key)
-        : null,
-    }));
-
-    setDisplayedFiles(processedFiles.slice(0, page * 200));
+    // Remove decoding since file keys should be used as-is
+    setDisplayedFiles(files.slice(0, page * 200));
   }, [files, page]);
 
   useEffect(() => {
@@ -81,13 +60,9 @@ export default function Gallery({
       for (const file of displayedFiles) {
         if (file.file_key && file.thumbnail_key) {
           try {
-            // Use encoded thumbnail key for API call
-            const encodedThumbKey = encodeURIComponent(file.thumbnail_key);
-            const url = await apiService.getThumbnailUrl(encodedThumbKey);
+            const url = await apiService.getThumbnailUrl(file.thumbnail_key);
             if (url && url.trim().length > 0) {
-              // Store URL with encoded key
-              const encodedFileKey = encodeURIComponent(file.file_key);
-              urls[encodedFileKey] = url;
+              urls[file.file_key] = url;
             }
           } catch (error) {
             console.error(

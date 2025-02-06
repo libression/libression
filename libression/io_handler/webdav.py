@@ -7,9 +7,8 @@ import logging
 import os
 import typing
 import urllib.parse
-import re
-
 import bs4
+import re
 import httpx
 
 import libression.entities.base
@@ -146,9 +145,6 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         if directory:
             await self._ensure_directory_exists(directory, opened_client)
 
-        # Ensure the file_key is URL-encoded
-        encoded_file_key = urllib.parse.quote(file_key)
-
         async def file_sender():  # func in func annoyingly but need to reference file_stream
             while True:
                 chunk = file_stream.file_stream.read(
@@ -161,7 +157,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
 
         # httpx will consume the generator one chunk at a time
         response = await opened_client.put(
-            f"{self.base_url_with_path}/{encoded_file_key}",
+            f"{self.base_url_with_path}/{file_key}",
             auth=self.auth,
             content=file_sender(),  # Generator is consumed lazily
             headers=put_headers,
@@ -213,10 +209,12 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         current_time = int(datetime.datetime.now().timestamp())
         expires = current_time + expires_in_seconds
 
-        cleaned_file_key = file_key.lstrip("/")
-        uri = f"/{self.presigned_url_path}/{cleaned_file_key}"
+        # use spaces for secret key generation (not %20 or %2520)
+        unencoded_file_key = urllib.parse.unquote(file_key.lstrip("/"))
+        encoded_file_key = urllib.parse.quote(unencoded_file_key)
+        unencoded_uri = f"/{self.presigned_url_path}/{unencoded_file_key}"
 
-        string_to_hash = f"{expires}{uri} {self.secret_key}"
+        string_to_hash = f"{expires}{unencoded_uri} {self.secret_key}"
         md5_hash = base64.urlsafe_b64encode(
             hashlib.md5(string_to_hash.encode()).digest()
         ).decode()
@@ -226,7 +224,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         # md5_hash = hashlib.md5(string_to_hash.encode()).hexdigest()
 
         # Build the secure URL
-        secure_url = f"{cleaned_file_key}" f"?md5={md5_hash}&expires={expires}"
+        secure_url = f"{encoded_file_key}" f"?md5={md5_hash}&expires={expires}"
 
         return secure_url
 
@@ -311,10 +309,10 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         """
 
         # Ensure directory path has trailing slash for WebDAV
-        encoded_dirpath = urllib.parse.quote(dirpath).rstrip("/")
+        dirpath = dirpath.rstrip("/")
         url = (
-            f"{self.base_url_with_path}/{encoded_dirpath}/"
-            if encoded_dirpath
+            f"{self.base_url_with_path}/{dirpath}/"
+            if dirpath
             else f"{self.base_url_with_path}/"
         )
 

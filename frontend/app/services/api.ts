@@ -19,19 +19,17 @@ export const apiService = {
   async getThumbnailUrl(thumbnailKey: string): Promise<string> {
     if (!thumbnailKey) return "";
     try {
-      // Ensure consistent encoding of the thumbnail key
-      const encodedKey = encodeURIComponent(thumbnailKey);
       const response = await fetch(this.getApiUrl("thumbnailsUrls"), {
         method: "POST",
         headers: defaultHeaders,
-        body: JSON.stringify({ file_keys: [encodedKey] }),
+        body: JSON.stringify({ file_keys: [thumbnailKey] }),
       });
 
       if (!response.ok)
         throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
       const url = this.transformWebDAVUrl(
-        `${data.base_url}/${data.paths[encodedKey]}`,
+        `${data.base_url}/${data.paths[thumbnailKey]}`,
       );
 
       // Ensure URL is HTTPS

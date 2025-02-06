@@ -1,4 +1,5 @@
 import pytest
+import httpx
 import io
 from libression.entities.io import FileStreamInfos, FileStreamInfo, FileKeyMapping
 
@@ -529,12 +530,56 @@ async def test_list_objects_filenames_with_spaces(
             dirpath="", subfolder_contents=True, max_depth=3
         )
 
-        assert any(
-            obj.absolute_path == f"1 {dummy_file_key}" for obj in objects_root
+        found_root_file = [
+            x for x in objects_root if x.absolute_path == f"1 {dummy_file_key}"
+        ]
+        found_level1_file = [
+            x for x in objects_root if x.absolute_path == f"level 1/2 {dummy_file_key}"
+        ]
+
+        assert len(found_root_file) == 1, "Should find root file with spaces"
+        assert len(found_level1_file) == 1, "Should find level 1 file with spaces"
+
+        # test url paths work:
+        presigned_urls = io_handler.get_readonly_urls(
+            [f"1 {dummy_file_key}", f"level 1/2 {dummy_file_key}"],
+            expires_in_seconds=3600,
+        )
+
+        root_presigned_url_path = presigned_urls.paths[f"1 {dummy_file_key}"]
+        root_presigned_url_contents = httpx.get(
+            f"{io_handler.presigned_base_url_with_path}/{root_presigned_url_path}",
+            verify=False,
+        )
+
+        assert (
+            root_presigned_url_contents.status_code == 200
         ), "Should find root file with spaces"
 
-        assert any(
-            obj.absolute_path == f"level 1/2 {dummy_file_key}" for obj in objects_root
+        level1_presigned_url_path = presigned_urls.paths[f"level 1/2 {dummy_file_key}"]
+        level1_presigned_url_contents = httpx.get(
+            f"{io_handler.presigned_base_url_with_path}/{level1_presigned_url_path}",
+            verify=False,
+        )
+
+        assert (
+            level1_presigned_url_contents.status_code == 200
+        ), "Should find level 1 file with spaces"
+
+        # test nested paths work:
+        objects_level1 = await io_handler.list_objects(
+            dirpath="level 1", subfolder_contents=True, max_depth=3
+        )
+
+        assert (
+            len(
+                [
+                    x
+                    for x in objects_level1
+                    if x.absolute_path == f"level 1/2 {dummy_file_key}"
+                ]
+            )
+            == 1
         ), "Should find level 1 file with spaces"
 
     finally:
