@@ -508,31 +508,31 @@ async def test_list_objects_max_depth(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "io_handler_fixture_name,filename",
+    "io_handler_fixture_name, filename_prefix",
     [
-        ("docker_webdav_io_handler", f"single_space {uuid.uuid4()}"),
+        ("docker_webdav_io_handler", "single_space bla"),
         (
             "docker_webdav_io_handler",
-            f"single_space folder/single_space {uuid.uuid4()}",
+            "single_space folder/single_space bla",
         ),
-        ("docker_webdav_io_handler", f"single_space%20encoded{uuid.uuid4()}"),
+        ("docker_webdav_io_handler", "single_space%20encodedbla"),
         (
             "docker_webdav_io_handler",
-            f"single_space%20encodedfolder/single_space%20encoded{uuid.uuid4()}",
+            "single_space%20encodedfolder/single_space%20encodedbla",
         ),
-        ("docker_webdav_io_handler", f"double_space  {uuid.uuid4()}"),
+        ("docker_webdav_io_handler", "double_space  bla"),
         (
             "docker_webdav_io_handler",
-            f"double_space  folder/double_space  {uuid.uuid4()}",
+            "double_space  folder/double_space  bla",
         ),
-        ("docker_webdav_io_handler", f"double_space%20encoded{uuid.uuid4()}"),
+        ("docker_webdav_io_handler", "double_space%20encodedbla"),
         (
             "docker_webdav_io_handler",
-            f"double_space%20encodedfolder/double_space%20encoded{uuid.uuid4()}",
+            "double_space%20encodedfolder/double_space%20encodedbla",
         ),
         (
             "docker_webdav_io_handler",
-            f"messy spaces%20  fold%2520er/mixed%20dou ble  space%2520{uuid.uuid4()}",
+            "messy spaces%20  fold%2520er/mixed%20dou ble  space%2520bla",
         ),
     ],
 )
@@ -540,10 +540,11 @@ async def test_list_objects_filenames_with_spaces(
     io_handler_fixture_name,
     test_file_stream,
     request: pytest.FixtureRequest,
-    filename: str,
+    filename_prefix: str,
 ):
     """Test that max_depth parameter correctly limits directory traversal"""
 
+    filename = f"{filename_prefix}_{uuid.uuid4()}"
     io_handler = request.getfixturevalue(io_handler_fixture_name)
     files_with_spaces = {
         filename: test_file_stream,

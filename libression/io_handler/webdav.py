@@ -309,10 +309,10 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         """
 
         # Ensure directory path has trailing slash for WebDAV
-        dirpath = dirpath.rstrip("/")
+        unquoted_dirpath = urllib.parse.unquote(dirpath.rstrip("/"))
         url = (
-            f"{self.base_url_with_path}/{dirpath}/"
-            if dirpath
+            f"{self.base_url_with_path}/{unquoted_dirpath}/"
+            if unquoted_dirpath
             else f"{self.base_url_with_path}/"
         )
 
