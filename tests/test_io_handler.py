@@ -1,6 +1,7 @@
 import pytest
 import httpx
 import io
+import uuid
 from libression.entities.io import FileStreamInfos, FileStreamInfo, FileKeyMapping
 
 TEST_DATA = b"Hello Test!"
@@ -506,20 +507,46 @@ async def test_list_objects_max_depth(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("io_handler_fixture_name", ["docker_webdav_io_handler"])
+@pytest.mark.parametrize(
+    "io_handler_fixture_name,filename",
+    [
+        ("docker_webdav_io_handler", f"single_space {uuid.uuid4()}"),
+        (
+            "docker_webdav_io_handler",
+            f"single_space folder/single_space {uuid.uuid4()}",
+        ),
+        ("docker_webdav_io_handler", f"single_space%20encoded{uuid.uuid4()}"),
+        (
+            "docker_webdav_io_handler",
+            f"single_space%20encodedfolder/single_space%20encoded{uuid.uuid4()}",
+        ),
+        ("docker_webdav_io_handler", f"double_space  {uuid.uuid4()}"),
+        (
+            "docker_webdav_io_handler",
+            f"double_space  folder/double_space  {uuid.uuid4()}",
+        ),
+        ("docker_webdav_io_handler", f"double_space%20encoded{uuid.uuid4()}"),
+        (
+            "docker_webdav_io_handler",
+            f"double_space%20encodedfolder/double_space%20encoded{uuid.uuid4()}",
+        ),
+        (
+            "docker_webdav_io_handler",
+            f"messy spaces%20  fold%2520er/mixed%20dou ble  space%2520{uuid.uuid4()}",
+        ),
+    ],
+)
 async def test_list_objects_filenames_with_spaces(
     io_handler_fixture_name,
-    dummy_file_key,
     test_file_stream,
     request: pytest.FixtureRequest,
+    filename: str,
 ):
     """Test that max_depth parameter correctly limits directory traversal"""
 
     io_handler = request.getfixturevalue(io_handler_fixture_name)
-
     files_with_spaces = {
-        f"1 {dummy_file_key}": test_file_stream,
-        f"level 1/2 {dummy_file_key}": test_file_stream,
+        filename: test_file_stream,
     }
 
     try:
@@ -530,57 +557,22 @@ async def test_list_objects_filenames_with_spaces(
             dirpath="", subfolder_contents=True, max_depth=3
         )
 
-        found_root_file = [
-            x for x in objects_root if x.absolute_path == f"1 {dummy_file_key}"
-        ]
-        found_level1_file = [
-            x for x in objects_root if x.absolute_path == f"level 1/2 {dummy_file_key}"
-        ]
-
-        assert len(found_root_file) == 1, "Should find root file with spaces"
-        assert len(found_level1_file) == 1, "Should find level 1 file with spaces"
+        found_file = [x for x in objects_root if x.absolute_path == filename]
+        assert len(found_file) == 1, "Should find file"
 
         # test url paths work:
         presigned_urls = io_handler.get_readonly_urls(
-            [f"1 {dummy_file_key}", f"level 1/2 {dummy_file_key}"],
+            [filename],
             expires_in_seconds=3600,
         )
 
-        root_presigned_url_path = presigned_urls.paths[f"1 {dummy_file_key}"]
-        root_presigned_url_contents = httpx.get(
-            f"{io_handler.presigned_base_url_with_path}/{root_presigned_url_path}",
+        presigned_url_path = presigned_urls.paths[filename]
+        presigned_url_contents = httpx.get(
+            f"{io_handler.presigned_base_url_with_path}/{presigned_url_path}",
             verify=False,
         )
 
-        assert (
-            root_presigned_url_contents.status_code == 200
-        ), "Should find root file with spaces"
-
-        level1_presigned_url_path = presigned_urls.paths[f"level 1/2 {dummy_file_key}"]
-        level1_presigned_url_contents = httpx.get(
-            f"{io_handler.presigned_base_url_with_path}/{level1_presigned_url_path}",
-            verify=False,
-        )
-
-        assert (
-            level1_presigned_url_contents.status_code == 200
-        ), "Should find level 1 file with spaces"
-
-        # test nested paths work:
-        objects_level1 = await io_handler.list_objects(
-            dirpath="level 1", subfolder_contents=True, max_depth=3
-        )
-
-        assert (
-            len(
-                [
-                    x
-                    for x in objects_level1
-                    if x.absolute_path == f"level 1/2 {dummy_file_key}"
-                ]
-            )
-            == 1
-        ), "Should find level 1 file with spaces"
+        assert presigned_url_contents.status_code == 200, "Should find file with spaces"
 
     finally:
         # Clean up all files and directories

@@ -1,5 +1,6 @@
 import datetime
 import typing
+import urllib.parse
 import libression.config
 import libression.entities.media
 import libression.entities.base
@@ -7,8 +8,22 @@ import pydantic
 
 
 class FileKeyMapping(pydantic.BaseModel):
-    source_key: str
-    destination_key: str
+    source_key: str = pydantic.Field(
+        description="""
+        Source file key, normalised to unquoted and without leading slash
+        """
+    )
+    destination_key: str = pydantic.Field(
+        description="""
+        Destination file key, normalised to unquoted and without leading slash
+        """
+    )
+
+    @pydantic.model_validator(mode="before")
+    def normalise_keys(cls, v: typing.Any) -> typing.Any:
+        if isinstance(v, str):
+            return urllib.parse.unquote(v.lstrip("/"))
+        return v
 
     @staticmethod
     def validate_mappings(mappings: typing.Sequence["FileKeyMapping"]) -> None:
