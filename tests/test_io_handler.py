@@ -3,6 +3,8 @@ import httpx
 import io
 import uuid
 from libression.entities.io import FileStreamInfos, FileStreamInfo, FileKeyMapping
+import libression.io_handler.webdav
+
 
 TEST_DATA = b"Hello Test!"
 
@@ -542,9 +544,8 @@ async def test_list_objects_filenames_with_spaces(
     request: pytest.FixtureRequest,
     filename_prefix: str,
 ):
-    """Test that max_depth parameter correctly limits directory traversal"""
-
     filename = f"{filename_prefix}_{uuid.uuid4()}"
+    unquoted_filename = libression.io_handler.webdav.url_full_unquote(filename)
     io_handler = request.getfixturevalue(io_handler_fixture_name)
     files_with_spaces = {
         filename: test_file_stream,
@@ -558,16 +559,28 @@ async def test_list_objects_filenames_with_spaces(
             dirpath="", subfolder_contents=True, max_depth=3
         )
 
-        found_file = [x for x in objects_root if x.absolute_path == filename]
+        found_file = [x for x in objects_root if x.absolute_path == unquoted_filename]
         assert len(found_file) == 1, "Should find file"
+
+        # test copy works
+        copy_filename = f"copied folder_with_spaces/new_file {unquoted_filename}"
+        await io_handler.copy(
+            [
+                FileKeyMapping(
+                    source_key=unquoted_filename, destination_key=copy_filename
+                )
+            ],
+            delete_source=False,
+            overwrite_existing=True,
+        )
 
         # test url paths work:
         presigned_urls = io_handler.get_readonly_urls(
-            [filename],
+            [unquoted_filename, copy_filename],
             expires_in_seconds=3600,
         )
 
-        presigned_url_path = presigned_urls.paths[filename]
+        presigned_url_path = presigned_urls.paths[unquoted_filename]
         presigned_url_contents = httpx.get(
             f"{io_handler.presigned_base_url_with_path}/{presigned_url_path}",
             verify=False,
@@ -575,6 +588,19 @@ async def test_list_objects_filenames_with_spaces(
 
         assert presigned_url_contents.status_code == 200, "Should find file with spaces"
 
+        copied_presigned_url_path = presigned_urls.paths[copy_filename]
+        copied_presigned_url_contents = httpx.get(
+            f"{io_handler.presigned_base_url_with_path}/{copied_presigned_url_path}",
+            verify=False,
+        )
+
+        assert (
+            copied_presigned_url_contents.status_code == 200
+        ), "Should find copied file with spaces"
+        assert (
+            copied_presigned_url_contents.content == presigned_url_contents.content
+        ), "Should find copied file with spaces"
+
     finally:
         # Clean up all files and directories
-        await io_handler.delete(list(files_with_spaces.keys()))
+        await io_handler.delete([unquoted_filename, copy_filename])

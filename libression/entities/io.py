@@ -84,6 +84,14 @@ class ListDirectoryObject(pydantic.BaseModel):
     modified: datetime.datetime
     is_dir: bool
 
+    @pydantic.field_validator("filename")
+    def validate_filename(cls, v):
+        return urllib.parse.unquote(v)
+
+    @pydantic.field_validator("absolute_path")
+    def validate_absolute_path(cls, v):
+        return urllib.parse.unquote(v)
+
 
 @typing.runtime_checkable
 class IOHandler(typing.Protocol):

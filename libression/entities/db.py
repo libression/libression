@@ -5,6 +5,7 @@ import sqlite3  # Just for type hints. NOT for any operations!
 import typing
 import uuid
 import pydantic
+import urllib.parse
 
 
 @dataclasses.dataclass
@@ -102,6 +103,9 @@ def new_db_file_entry(
     """
     Generates an file_entity_id (ready for db insert)
     """
+    # force file_key to be unquoted
+    file_key = urllib.parse.unquote(file_key)
+
     return DBFileEntry(
         file_key=file_key,
         thumbnail_key=thumbnail_key,
@@ -131,6 +135,9 @@ def existing_db_file_entry(
     """Factory method for actions on existing files."""
     if action_type == DBFileAction.CREATE:
         raise ValueError("Use create() for new files")
+
+    # force file_key to be unquoted
+    file_key = urllib.parse.unquote(file_key)
 
     return DBFileEntry(
         file_key=file_key,

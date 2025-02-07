@@ -18,6 +18,17 @@ import libression.config
 logger = logging.getLogger(__name__)
 
 
+def url_full_unquote(url: str) -> str:
+    """Unquote a URL that may have been encoded multiple times"""
+    result = url
+    while "%" in result:
+        new_result = urllib.parse.unquote(result)
+        if new_result == result:  # No more decoding possible
+            break
+        result = new_result
+    return result
+
+
 class WebDAVServerType(enum.Enum):
     """Known WebDAV server types with sharing capabilities"""
 
@@ -141,7 +152,8 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
             put_headers["Content-Type"] = file_stream.mime_type.value  # get the string
 
         # Ensure directory exists before upload
-        directory = os.path.dirname(file_key)
+        unquoted_file_key = url_full_unquote(file_key)
+        directory = os.path.dirname(unquoted_file_key)
         if directory:
             await self._ensure_directory_exists(directory, opened_client)
 
@@ -157,7 +169,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
 
         # httpx will consume the generator one chunk at a time
         response = await opened_client.put(
-            f"{self.base_url_with_path}/{file_key}",
+            f"{self.base_url_with_path}/{unquoted_file_key}",
             auth=self.auth,
             content=file_sender(),  # Generator is consumed lazily
             headers=put_headers,
@@ -210,7 +222,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         expires = current_time + expires_in_seconds
 
         # use spaces for secret key generation (not %20 or %2520)
-        unencoded_file_key = urllib.parse.unquote(file_key.lstrip("/"))
+        unencoded_file_key = url_full_unquote(file_key.lstrip("/"))
         encoded_file_key = urllib.parse.quote(unencoded_file_key)
         unencoded_uri = f"/{self.presigned_url_path}/{unencoded_file_key}"
 
@@ -309,7 +321,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         """
 
         # Ensure directory path has trailing slash for WebDAV
-        unquoted_dirpath = urllib.parse.unquote(dirpath.rstrip("/"))
+        unquoted_dirpath = url_full_unquote(dirpath.rstrip("/"))
         url = (
             f"{self.base_url_with_path}/{unquoted_dirpath}/"
             if unquoted_dirpath
@@ -319,12 +331,55 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         response = await opened_client.get(
             url,
             auth=self.auth,
-            headers={"Accept": "text/html"},
+            headers={"Accept": "application/json"},  # Request JSON instead of HTML
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                f"dirpath: {dirpath} url: {url} error: {e} unquoted_dirpath: {unquoted_dirpath}"
+            )
+            raise e
 
-        # don't use encoded dirpath (its for showing in the browser)
-        return self._parse_directory_listing(response.text, dirpath)
+        # Parse JSON response
+        listing = response.json()
+        files = []
+
+        for entry in listing:
+            name = entry["name"]
+            if name == ".." or not name:  # Skip parent directory and empty names
+                continue
+
+            is_dir = entry["type"] == "directory"
+            size = 0 if is_dir else entry["size"]
+
+            # Parse RFC 2822 date format
+            mtime = datetime.datetime.strptime(
+                entry["mtime"], "%a, %d %b %Y %H:%M:%S %Z"
+            )
+
+            # Remove trailing slash for directories
+            filename = name.rstrip("/") if is_dir else name
+            unquoted_filename = url_full_unquote(filename)
+
+            # Build absolute path
+            unquoted_absolute_path = (
+                f"{unquoted_dirpath}/{unquoted_filename}"
+                if unquoted_dirpath
+                else unquoted_filename
+            ).strip("/")
+
+            files.append(
+                libression.entities.io.ListDirectoryObject(
+                    filename=unquoted_filename,
+                    absolute_path=unquoted_absolute_path,
+                    size=size,
+                    modified=mtime,
+                    is_dir=is_dir,
+                )
+            )
+
+        return files
 
     async def _list_recursive(
         self,
@@ -346,7 +401,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         for item in current_level:
             if item.is_dir:
                 # Get full path for subdirectory
-                subdir_path = item.absolute_path
+                subdir_path = url_full_unquote(item.absolute_path)
                 # Recursively list contents
                 subdir_contents = await self._list_recursive(
                     subdir_path, opened_client, max_depth, current_depth + 1
@@ -397,48 +452,39 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         date_pattern = "%d-%b-%Y %H:%M"
 
         for line in lines:
-            # Use regex to capture the filename or directory name and other details
-            match = re.match(
-                r"^(.*?)(\d{1,2}-\w{3}-\d{4} \d{2}:\d{2})\s+(\d+|-)?.*$", line.strip()
-            )
-            if match:
-                raw_name = match.group(
-                    1
-                ).strip()  # Capture the full name (file or directory)
-                modified = datetime.datetime.strptime(match.group(2), date_pattern)
+            # Find the date-time pattern first
+            date_match = re.search(r"(\d{1,2}-\w{3}-\d{4} \d{2}:\d{2})", line)
+            if date_match:
+                # Split the line at the date to get the filename and size
+                parts = line.split(date_match.group(1))
+                if len(parts) == 2:
+                    raw_name = parts[0].strip()
+                    size_part = parts[1].strip()
 
-                is_dir = raw_name.endswith("/")  # Check if it's a directory
-                filename = (
-                    raw_name[:-1] if is_dir else raw_name
-                )  # Remove trailing slash for directories
-
-                # Ensure the name is URL-decoded if necessary
-                absolute_path = (
-                    f"{dirpath}/{filename}" if dirpath else filename
-                ).strip("/")
-
-                size = (
-                    0
-                    if is_dir
-                    else _parse_nginx_ls_size(
-                        match.group(3) if match.group(3) != "-" else "0"
+                    modified = datetime.datetime.strptime(
+                        date_match.group(1), date_pattern
                     )
-                )
 
-                # Debugging: Log the name being processed
-                logger.debug(
-                    f"Parsed {'directory' if is_dir else 'file'}: {filename}, is_dir: {is_dir}, absolute_path: {absolute_path}"
-                )
+                    is_dir = raw_name.endswith("/")
+                    filename = raw_name[:-1] if is_dir else raw_name
 
-                files.append(
-                    libression.entities.io.ListDirectoryObject(
-                        filename=filename,
-                        absolute_path=absolute_path,
-                        size=size,
-                        modified=modified,
-                        is_dir=is_dir,
+                    absolute_path = (
+                        f"{dirpath}/{filename}" if dirpath else filename
+                    ).strip("/")
+
+                    # Parse size from the remaining part
+                    size = 0 if is_dir else _parse_nginx_ls_size(size_part)
+
+                    # decode all urls
+                    files.append(
+                        libression.entities.io.ListDirectoryObject(
+                            filename=url_full_unquote(filename),
+                            absolute_path=url_full_unquote(absolute_path),
+                            size=size,
+                            modified=modified,
+                            is_dir=is_dir,
+                        )
                     )
-                )
 
         return files
 
@@ -450,7 +496,7 @@ class WebDAVIOHandler(libression.entities.io.IOHandler):
         for part in parts:
             if not part:
                 continue
-            current_path = f"{current_path}/{part}"
+            current_path = f"{current_path}/{urllib.parse.quote(part)}"
 
             # Use full URL dir path (TRAILING SLASH is important) for the request
             response = await client.request("MKCOL", f"{current_path}/", auth=self.auth)
