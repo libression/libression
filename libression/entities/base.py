@@ -1,5 +1,4 @@
 import pydantic
-import urllib.parse
 
 
 class FileActionResponse(pydantic.BaseModel):
@@ -18,4 +17,8 @@ class UploadEntry(pydantic.BaseModel):
 
     @pydantic.field_validator("filename")
     def validate_filename(cls, v):
-        return urllib.parse.unquote(v)
+        if "%" in v:
+            raise ValueError(
+                "Filename should be unquoted and not contain percent encoding"
+            )
+        return v

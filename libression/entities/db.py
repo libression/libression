@@ -5,7 +5,6 @@ import sqlite3  # Just for type hints. NOT for any operations!
 import typing
 import uuid
 import pydantic
-import urllib.parse
 
 
 @dataclasses.dataclass
@@ -103,8 +102,8 @@ def new_db_file_entry(
     """
     Generates an file_entity_id (ready for db insert)
     """
-    # force file_key to be unquoted
-    file_key = urllib.parse.unquote(file_key)
+    if "%" in file_key:
+        raise ValueError("Filename should be unquoted and not contain percent encoding")
 
     return DBFileEntry(
         file_key=file_key,
@@ -136,8 +135,8 @@ def existing_db_file_entry(
     if action_type == DBFileAction.CREATE:
         raise ValueError("Use create() for new files")
 
-    # force file_key to be unquoted
-    file_key = urllib.parse.unquote(file_key)
+    if "%" in file_key:
+        raise ValueError("Filename should be unquoted and not contain percent encoding")
 
     return DBFileEntry(
         file_key=file_key,

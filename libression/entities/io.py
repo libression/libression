@@ -1,6 +1,5 @@
 import datetime
 import typing
-import urllib.parse
 import libression.config
 import libression.entities.media
 import libression.entities.base
@@ -22,7 +21,10 @@ class FileKeyMapping(pydantic.BaseModel):
     @pydantic.model_validator(mode="before")
     def normalise_keys(cls, v: typing.Any) -> typing.Any:
         if isinstance(v, str):
-            return urllib.parse.unquote(v.lstrip("/"))
+            if "%" in v:
+                raise ValueError(
+                    "Filename should be unquoted and not contain percent encoding"
+                )
         return v
 
     @staticmethod
@@ -86,11 +88,19 @@ class ListDirectoryObject(pydantic.BaseModel):
 
     @pydantic.field_validator("filename")
     def validate_filename(cls, v):
-        return urllib.parse.unquote(v)
+        if "%" in v:
+            raise ValueError(
+                "Filename should be unquoted and not contain percent encoding"
+            )
+        return v
 
     @pydantic.field_validator("absolute_path")
     def validate_absolute_path(cls, v):
-        return urllib.parse.unquote(v)
+        if "%" in v:
+            raise ValueError(
+                "Filename should be unquoted and not contain percent encoding"
+            )
+        return v
 
 
 @typing.runtime_checkable
