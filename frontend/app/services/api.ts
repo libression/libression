@@ -53,7 +53,7 @@ export const apiService = {
         method: "POST",
         headers: defaultHeaders,
         body: JSON.stringify({
-          dir_key: encodeURIComponent(path),
+          dir_key: path,
           subfolder_contents: showDirectories,
         }),
       });
@@ -89,14 +89,12 @@ export const apiService = {
     fileKeys: string[],
   ): Promise<ApiResponse<{ files: FileEntry[] }>> {
     try {
-      // Encode the file keys before sending
-      const encodedKeys = fileKeys.map((key) => encodeURIComponent(key));
-      console.log("Fetching files info for:", encodedKeys);
+      console.log("Fetching files info for:", fileKeys);
 
       const response = await fetch(getApiUrl("filesInfo"), {
         method: "POST",
         headers: defaultHeaders,
-        body: JSON.stringify({ file_keys: encodedKeys }),
+        body: JSON.stringify({ file_keys: fileKeys }),
       });
 
       if (!response.ok) {
@@ -104,16 +102,6 @@ export const apiService = {
       }
 
       const data = await response.json();
-      // Decode the file keys in the response
-      if (data.files) {
-        data.files = data.files.map((file: FileEntry) => ({
-          ...file,
-          file_key: decodeURIComponent(file.file_key),
-          thumbnail_key: file.thumbnail_key
-            ? decodeURIComponent(file.thumbnail_key)
-            : null,
-        }));
-      }
       console.log("Files info response:", data);
       return { data };
     } catch (error: unknown) {

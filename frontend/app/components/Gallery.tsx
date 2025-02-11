@@ -102,7 +102,7 @@ export default function Gallery({
         return (
           <div
             key={decodedKey}
-            className="relative"
+            className="relative group"
             style={{ width: thumbnailSize, height: thumbnailSize }}
           >
             <input
@@ -145,6 +145,12 @@ export default function Gallery({
                 ) : (
                   <BrokenImageIcon />
                 )}
+                {/* Filename overlay */}
+                <div className="absolute bottom-0 left-0 right-0 p-2 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                  <p className="text-white text-xs truncate">
+                    {decodeURIComponent(file.file_key.split("/").pop() || "")}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
