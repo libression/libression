@@ -96,11 +96,10 @@ def _process_video_frames(
     width_in_pixels: int,
     frame_count: int = 5,
 ) -> bytes | None:
-    """Common video processing logic for both URL and byte stream inputs"""
     try:
         if not container.streams.video:
             logger.error("No video stream found")
-            return None  # Return empty bytes for invalid images
+            return None
 
         stream = container.streams.video[0]
         frames: list[PIL.Image.Image] = []
@@ -109,7 +108,8 @@ def _process_video_frames(
             f"Video info: format={container.format.name}, "
             f"duration={stream.duration}, "
             f"frames={stream.frames}, "
-            f"fps={stream.average_rate}"
+            f"fps={stream.average_rate}, "
+            f"rotation={stream.metadata.get('rotate', 0)}"
         )
 
         # Special handling for GIFs
@@ -136,79 +136,151 @@ def _process_video_frames(
                 )  # Default to 100ms if no duration
 
         else:
+            logger.debug("Processing video file...")
             stream.thread_type = "AUTO"
-            container.seek(0)  # Reset to start
+            container.seek(0)
 
-            # First try: Just get first few frames sequentially
-            for frame in container.decode(video=0):
-                height = int(frame.height * width_in_pixels / frame.width)
-                frame = frame.reformat(width=width_in_pixels, height=height)
-                frames.append(frame.to_image())
-                if len(frames) >= 2:  # We only need 2 frames minimum
-                    break
+            frames_collected = 0
+            # Try to get 5 evenly spaced frames
+            if stream.duration and stream.duration > 0:
+                frame_positions = [
+                    0,  # First frame
+                    stream.duration // 4,  # 25%
+                    stream.duration // 2,  # 50%
+                    (stream.duration * 3) // 4,  # 75%
+                    stream.duration - 1,  # Last frame
+                ]
 
-            # If that didn't work, try seeking
-            if len(frames) < 2 and stream.duration and stream.duration > 0:
-                logger.debug("Trying seek strategy")
-                container.seek(stream.duration // 2)  # Try middle of video
-                try:
-                    frame = next(container.decode(video=0))
-                    height = int(frame.height * width_in_pixels / frame.width)
-                    frame = frame.reformat(width=width_in_pixels, height=height)
-                    frames.append(frame.to_image())
-                except StopIteration:
-                    pass
+                for position in frame_positions:
+                    logger.debug(f"Seeking to position {position}")
+                    container.seek(position)
+                    try:
+                        frame = next(container.decode(video=0))
+                        height = int(frame.height * width_in_pixels / frame.width)
+                        frame = frame.reformat(width=width_in_pixels, height=height)
+                        pil_image = frame.to_image()
+
+                        # Handle rotation based on metadata
+                        rotation = int(stream.metadata.get("rotate", 0))
+                        if rotation == 90:
+                            pil_image = pil_image.transpose(PIL.Image.ROTATE_270)
+                        elif rotation == 270:
+                            pil_image = pil_image.transpose(PIL.Image.ROTATE_90)
+                        elif rotation == 180:
+                            pil_image = pil_image.transpose(PIL.Image.ROTATE_180)
+
+                        frames.append(pil_image)
+                        frames_collected += 1
+                        logger.debug(f"Collected frame {frames_collected}")
+                    except StopIteration:
+                        logger.debug(f"Failed to get frame at position {position}")
+                        continue
+
+            logger.debug(f"Collected {len(frames)} frames from seeking")
+
+            # If seeking didn't get enough frames, try sequential reading
+            if len(frames) < 5:
+                logger.debug("Not enough frames from seeking, trying sequential read")
+                container.seek(0)
+
+                # Get total frame count if available
+                total_frames = stream.frames or 0
+                if total_frames > 0:
+                    # Calculate frame interval to get 5 evenly spaced frames
+                    frame_interval = max(1, total_frames // 5)
+                    frame_positions = [i * frame_interval for i in range(5)]
+                    current_frame = 0
+
+                    for frame in container.decode(video=0):
+                        if current_frame in frame_positions:
+                            height = int(frame.height * width_in_pixels / frame.width)
+                            frame = frame.reformat(width=width_in_pixels, height=height)
+                            pil_image = frame.to_image()
+
+                            rotation = int(stream.metadata.get("rotate", 0))
+                            if rotation == 90:
+                                pil_image = pil_image.transpose(PIL.Image.ROTATE_270)
+                            elif rotation == 270:
+                                pil_image = pil_image.transpose(PIL.Image.ROTATE_90)
+                            elif rotation == 180:
+                                pil_image = pil_image.transpose(PIL.Image.ROTATE_180)
+
+                            frames.append(pil_image)
+                            if len(frames) >= 5:
+                                break
+                        current_frame += 1
+                else:
+                    # If we can't get frame count, try to estimate based on duration
+                    if stream.duration and stream.duration > 0:
+                        frame_interval = max(1, stream.duration // 5)
+                        for frame in container.decode(video=0):
+                            if frame.pts % frame_interval == 0:
+                                height = int(
+                                    frame.height * width_in_pixels / frame.width
+                                )
+                                frame = frame.reformat(
+                                    width=width_in_pixels, height=height
+                                )
+                                pil_image = frame.to_image()
+
+                                rotation = int(stream.metadata.get("rotate", 0))
+                                if rotation == 90:
+                                    pil_image = pil_image.transpose(
+                                        PIL.Image.ROTATE_270
+                                    )
+                                elif rotation == 270:
+                                    pil_image = pil_image.transpose(PIL.Image.ROTATE_90)
+                                elif rotation == 180:
+                                    pil_image = pil_image.transpose(
+                                        PIL.Image.ROTATE_180
+                                    )
+
+                                frames.append(pil_image)
+                                if len(frames) >= 5:
+                                    break
+
+            logger.debug(f"Final frame count: {len(frames)}")
 
         if not frames:
             raise RuntimeError("No frames found in video/gif")
 
-        # Ensure we have at least 2 frames
-        if len(frames) == 1:
-            frames.append(frames[0])
-
-        logger.debug(f"Extracted {len(frames)} frames")
-
         # Create output GIF with explicit animation settings
-        gif_buffer = io.BytesIO()
-        frames[0].save(
-            gif_buffer,
+        logger.debug(f"About to create GIF with {len(frames)} frames")
+
+        # Convert all frames to RGB first (to ensure consistent color space)
+        processed_frames = []
+        for frame in frames:
+            # Convert and create a fresh copy of each frame
+            rgb_frame = frame.convert("RGB").copy()
+            p_frame = rgb_frame.quantize(method=PIL.Image.Quantize.MEDIANCUT).copy()
+            processed_frames.append(p_frame)
+
+        logger.debug(f"Processed {len(processed_frames)} frames for GIF")
+
+        # Create final GIF with copies of the frames
+        final_buffer = io.BytesIO()
+        processed_frames[0].copy().save(
+            final_buffer,
             format="GIF",
             save_all=True,
-            append_images=frames[1:],
-            duration=1000,
+            append_images=[f.copy() for f in processed_frames[1:]],
+            duration=200,
             loop=0,
-            disposal=2,
-            version="GIF89a",
+            optimize=False,
+            include_color_table=True,
         )
 
-        # Verify the GIF is animated
-        gif_buffer.seek(0)
-        test_gif = PIL.Image.open(gif_buffer)
-        logger.debug(
-            f"Output GIF info: animated={test_gif.is_animated}, "
-            f"n_frames={getattr(test_gif, 'n_frames', 1)}"
-        )
+        # Verify the output
+        final_buffer.seek(0)
+        test_gif = PIL.Image.open(final_buffer)
+        frame_count = sum(1 for _ in PIL.ImageSequence.Iterator(test_gif))
+        logger.debug(f"Created GIF with {frame_count} frames")
 
-        if not test_gif.is_animated:
-            logger.error("Failed to create animated GIF")
-            # Force animation by duplicating frame
-            gif_buffer = io.BytesIO()
-            frames[0].save(
-                gif_buffer,
-                format="GIF",
-                save_all=True,
-                append_images=[frames[0]],  # Duplicate first frame
-                duration=1000,
-                loop=0,
-                disposal=2,
-                version="GIF89a",
-            )
-
-        return gif_buffer.getvalue()
+        return final_buffer.getvalue()
 
     except Exception as e:
         logger.error(f"Error processing video frames: {e}")
-        return None  # Return empty bytes for invalid images
+        return None
 
 
 def _video_thumbnail_from_av(

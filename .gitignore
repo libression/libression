@@ -46,3 +46,6 @@ dmypy.json
 
 # OpenAPI spec
 openapi.json
+
+# macOS
+.DS_Store
