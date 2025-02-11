@@ -16,19 +16,27 @@ export const apiService = {
   transformWebDAVUrl,
   defaultHeaders,
 
-  async getThumbnailUrl(fileKey: string | null): Promise<string> {
-    if (!fileKey) return "";
+  async getThumbnailUrl(thumbnailKey: string): Promise<string> {
+    if (!thumbnailKey) return "";
     try {
       const response = await fetch(this.getApiUrl("thumbnailsUrls"), {
         method: "POST",
         headers: defaultHeaders,
-        body: JSON.stringify({ file_keys: [fileKey] }),
+        body: JSON.stringify({ file_keys: [thumbnailKey] }),
       });
 
       if (!response.ok)
         throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      return this.transformWebDAVUrl(`${data.base_url}/${data.paths[fileKey]}`);
+      const url = this.transformWebDAVUrl(
+        `${data.base_url}/${data.paths[thumbnailKey]}`,
+      );
+
+      // Ensure URL is HTTPS
+      if (!url.startsWith("https://")) {
+        return url.replace("http://", "https://");
+      }
+      return url;
     } catch (error) {
       console.error("Error fetching thumbnail URL:", error);
       return "";
@@ -40,6 +48,7 @@ export const apiService = {
     showDirectories: boolean = false,
   ): Promise<ApiResponse<{ dir_contents: ListDirectoryObject[] }>> {
     try {
+      console.log("Fetching directory contents for path:", path);
       const response = await fetch(getApiUrl("showDirContents"), {
         method: "POST",
         headers: defaultHeaders,
@@ -54,6 +63,19 @@ export const apiService = {
       }
 
       const data = await response.json();
+      console.log("Raw directory contents:", data.dir_contents);
+
+      // Add file_key to each item using absolute_path
+      if (data.dir_contents) {
+        data.dir_contents = data.dir_contents.map(
+          (item: ListDirectoryObject) => ({
+            ...item,
+            file_key: item.absolute_path, // Use absolute_path as file_key
+            filename: item.filename,
+          }),
+        );
+      }
+      console.log("Processed directory contents:", data.dir_contents);
       return { data };
     } catch (error: unknown) {
       if (error instanceof Error) {
@@ -67,6 +89,8 @@ export const apiService = {
     fileKeys: string[],
   ): Promise<ApiResponse<{ files: FileEntry[] }>> {
     try {
+      console.log("Fetching files info for:", fileKeys);
+
       const response = await fetch(getApiUrl("filesInfo"), {
         method: "POST",
         headers: defaultHeaders,
@@ -78,6 +102,7 @@ export const apiService = {
       }
 
       const data = await response.json();
+      console.log("Files info response:", data);
       return { data };
     } catch (error: unknown) {
       if (error instanceof Error) {
@@ -93,28 +118,46 @@ export const apiService = {
   ): Promise<ApiResponse<{ files: FileEntry[] }>> {
     try {
       const uploadEntries = await Promise.all(
-        Array.from(files).map(async (file) => ({
-          file_source: await this.readFileAsBase64(file),
-          filename: file.name,
-        })),
+        Array.from(files).map(async (file) => {
+          const base64 = await this.readFileAsBase64(file);
+          if (!base64) {
+            throw new Error(`Failed to read file: ${file.name}`);
+          }
+          return {
+            file_source: base64,
+            filename: file.name,
+          };
+        }),
       );
+
+      // Normalize the target directory path
+      const normalizedTargetDir = targetDir
+        .split("/")
+        .filter(Boolean) // Remove empty segments
+        .join("/");
+
+      const finalTargetDir = normalizedTargetDir
+        ? `/${normalizedTargetDir}`
+        : "";
 
       const response = await fetch(getApiUrl("upload"), {
         method: "POST",
         headers: defaultHeaders,
         body: JSON.stringify({
           files: uploadEntries,
-          target_dir: targetDir,
+          target_dir: finalTargetDir,
         }),
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`Upload failed: ${errorText}`);
       }
 
       const data = await response.json();
       return { data };
     } catch (error: unknown) {
+      console.error("Upload error:", error);
       if (error instanceof Error) {
         return { data: { files: [] }, error: error.message };
       }

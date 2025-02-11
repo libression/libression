@@ -1,6 +1,9 @@
 import pytest
+import httpx
 import io
+import uuid
 from libression.entities.io import FileStreamInfos, FileStreamInfo, FileKeyMapping
+import libression.io_handler.webdav
 
 
 TEST_DATA = b"Hello Test!"
@@ -503,3 +506,101 @@ async def test_list_objects_max_depth(
     finally:
         # Clean up all files and directories
         await io_handler.delete(list(nested_files.keys()))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "io_handler_fixture_name, filename_prefix",
+    [
+        ("docker_webdav_io_handler", "single_space bla"),
+        (
+            "docker_webdav_io_handler",
+            "single_space folder/single_space bla",
+        ),
+        ("docker_webdav_io_handler", "single_space%20encodedbla"),
+        (
+            "docker_webdav_io_handler",
+            "single_space%20encodedfolder/single_space%20encodedbla",
+        ),
+        ("docker_webdav_io_handler", "double_space  bla"),
+        (
+            "docker_webdav_io_handler",
+            "double_space  folder/double_space  bla",
+        ),
+        ("docker_webdav_io_handler", "double_space%20encodedbla"),
+        (
+            "docker_webdav_io_handler",
+            "double_space%20encodedfolder/double_space%20encodedbla",
+        ),
+        (
+            "docker_webdav_io_handler",
+            "messy spaces%20  fold%2520er/mixed%20dou ble  space%2520bla",
+        ),
+    ],
+)
+async def test_list_objects_filenames_with_spaces(
+    io_handler_fixture_name,
+    test_file_stream,
+    request: pytest.FixtureRequest,
+    filename_prefix: str,
+):
+    filename = f"{filename_prefix}_{uuid.uuid4()}"
+    unquoted_filename = libression.io_handler.webdav.url_full_unquote(filename)
+    io_handler = request.getfixturevalue(io_handler_fixture_name)
+    files_with_spaces = {
+        filename: test_file_stream,
+    }
+
+    try:
+        # Upload all files
+        await io_handler.upload(FileStreamInfos(file_streams=files_with_spaces))
+
+        objects_root = await io_handler.list_objects(
+            dirpath="", subfolder_contents=True, max_depth=3
+        )
+
+        found_file = [x for x in objects_root if x.absolute_path == unquoted_filename]
+        assert len(found_file) == 1, "Should find file"
+
+        # test copy works
+        copy_filename = f"copied folder_with_spaces/new_file {unquoted_filename}"
+        await io_handler.copy(
+            [
+                FileKeyMapping(
+                    source_key=unquoted_filename, destination_key=copy_filename
+                )
+            ],
+            delete_source=False,
+            overwrite_existing=True,
+        )
+
+        # test url paths work:
+        presigned_urls = io_handler.get_readonly_urls(
+            [unquoted_filename, copy_filename],
+            expires_in_seconds=3600,
+        )
+
+        presigned_url_path = presigned_urls.paths[unquoted_filename]
+        presigned_url_contents = httpx.get(
+            f"{io_handler.presigned_base_url_with_path}/{presigned_url_path}",
+            verify=False,
+        )
+
+        assert presigned_url_contents.status_code == 200, "Should find file with spaces"
+
+        copied_presigned_url_path = presigned_urls.paths[copy_filename]
+        copied_presigned_url_contents = httpx.get(
+            f"{io_handler.presigned_base_url_with_path}/{copied_presigned_url_path}",
+            verify=False,
+        )
+
+        assert (
+            copied_presigned_url_contents.status_code == 200
+        ), "Should find copied file with spaces"
+        assert (
+            copied_presigned_url_contents.content == presigned_url_contents.content
+        ), "Should find copied file with spaces"
+
+    finally:
+        # Clean up all files and directories
+        await io_handler.delete([unquoted_filename, copy_filename])

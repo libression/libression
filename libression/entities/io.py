@@ -7,8 +7,25 @@ import pydantic
 
 
 class FileKeyMapping(pydantic.BaseModel):
-    source_key: str
-    destination_key: str
+    source_key: str = pydantic.Field(
+        description="""
+        Source file key, normalised to unquoted and without leading slash
+        """
+    )
+    destination_key: str = pydantic.Field(
+        description="""
+        Destination file key, normalised to unquoted and without leading slash
+        """
+    )
+
+    @pydantic.model_validator(mode="before")
+    def normalise_keys(cls, v: typing.Any) -> typing.Any:
+        if isinstance(v, str):
+            if "%" in v:
+                raise ValueError(
+                    "Filename should be unquoted and not contain percent encoding"
+                )
+        return v
 
     @staticmethod
     def validate_mappings(mappings: typing.Sequence["FileKeyMapping"]) -> None:
@@ -68,6 +85,22 @@ class ListDirectoryObject(pydantic.BaseModel):
     size: int  # bytes
     modified: datetime.datetime
     is_dir: bool
+
+    @pydantic.field_validator("filename")
+    def validate_filename(cls, v):
+        if "%" in v:
+            raise ValueError(
+                "Filename should be unquoted and not contain percent encoding"
+            )
+        return v
+
+    @pydantic.field_validator("absolute_path")
+    def validate_absolute_path(cls, v):
+        if "%" in v:
+            raise ValueError(
+                "Filename should be unquoted and not contain percent encoding"
+            )
+        return v
 
 
 @typing.runtime_checkable

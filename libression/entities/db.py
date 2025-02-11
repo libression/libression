@@ -102,6 +102,9 @@ def new_db_file_entry(
     """
     Generates an file_entity_id (ready for db insert)
     """
+    if "%" in file_key:
+        raise ValueError("Filename should be unquoted and not contain percent encoding")
+
     return DBFileEntry(
         file_key=file_key,
         thumbnail_key=thumbnail_key,
@@ -131,6 +134,9 @@ def existing_db_file_entry(
     """Factory method for actions on existing files."""
     if action_type == DBFileAction.CREATE:
         raise ValueError("Use create() for new files")
+
+    if "%" in file_key:
+        raise ValueError("Filename should be unquoted and not contain percent encoding")
 
     return DBFileEntry(
         file_key=file_key,
