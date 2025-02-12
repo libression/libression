@@ -9,19 +9,25 @@ import pytest
 import libression.thumbnail.phash
 
 
-@pytest.mark.parametrize("minimal_image", ["jpg", "png"], indirect=True)
-def test_phash_static_image_generation(minimal_image):
+@pytest.mark.parametrize(
+    "media_fixture_by_filename", ["minimal.jpg", "minimal.png"], indirect=True
+)
+def test_phash_static_image_generation(media_fixture_by_filename):
     """Test hash generation for static images."""
-    hash_value = libression.thumbnail.phash.phash_from_thumbnail(minimal_image)
+    hash_value = libression.thumbnail.phash.phash_from_thumbnail(
+        media_fixture_by_filename
+    )
     assert isinstance(hash_value, str)
     assert len(hash_value) == 4  # 4x4 grid = 16 bits = 4 hex chars
     assert all(c in "0123456789abcdef" for c in hash_value)
 
 
-@pytest.mark.parametrize("minimal_image", ["gif"], indirect=True)
-def test_phash_animated_image_generation(minimal_image):
+@pytest.mark.parametrize("media_fixture_by_filename", ["minimal.gif"], indirect=True)
+def test_phash_animated_image_generation(media_fixture_by_filename):
     """Test hash generation for animated images."""
-    hash_value = libression.thumbnail.phash.phash_from_thumbnail(minimal_image)
+    hash_value = libression.thumbnail.phash.phash_from_thumbnail(
+        media_fixture_by_filename
+    )
     assert isinstance(hash_value, str)
 
     frames = hash_value.split(",")
@@ -38,22 +44,24 @@ def test_phash_animated_image_generation(minimal_image):
         (5, 7),  # 25 bits -> 7 hex chars
     ],
 )
-@pytest.mark.parametrize("minimal_image", ["jpg"], indirect=True)
-def test_phash_different_sizes(minimal_image, pixels, expected_length):
+@pytest.mark.parametrize("media_fixture_by_filename", ["minimal.jpg"], indirect=True)
+def test_phash_different_sizes(media_fixture_by_filename, pixels, expected_length):
     """Test different grid sizes."""
     hash_value = libression.thumbnail.phash.phash_from_thumbnail(
-        minimal_image, pixels=pixels
+        media_fixture_by_filename, pixels=pixels
     )
     assert len(hash_value) == expected_length
 
 
-@pytest.mark.parametrize("minimal_image", ["jpg"], indirect=True)
-def test_phash_rotation_invariance(minimal_image):
+@pytest.mark.parametrize("media_fixture_by_filename", ["minimal.jpg"], indirect=True)
+def test_phash_rotation_invariance(media_fixture_by_filename):
     """Test that rotated images produce the same hash."""
-    img = PIL.Image.open(io.BytesIO(minimal_image))
+    img = PIL.Image.open(io.BytesIO(media_fixture_by_filename))
 
     # Get hash of original
-    original_hash = libression.thumbnail.phash.phash_from_thumbnail(minimal_image)
+    original_hash = libression.thumbnail.phash.phash_from_thumbnail(
+        media_fixture_by_filename
+    )
 
     # Test 90, 180, 270 degree rotations
     for angle in [90, 180, 270]:

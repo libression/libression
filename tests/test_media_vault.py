@@ -113,17 +113,17 @@ async def test_get_files_info_rubbish_file(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "io_handler_fixture_name, minimal_image",
+    "io_handler_fixture_name, media_fixture_by_filename",
     [
-        ("docker_webdav_io_handler", "png"),
+        ("docker_webdav_io_handler", "minimal.png"),
     ],
-    indirect=["minimal_image"],
+    indirect=["media_fixture_by_filename"],
 )
 async def test_get_files_info_existing_thumbnails(
     db_client,
     io_handler_fixture_name,
     request: pytest.FixtureRequest,
-    minimal_image,
+    media_fixture_by_filename,
 ):
     png_file_key = f"{uuid.uuid4()}.png"
 
@@ -136,7 +136,7 @@ async def test_get_files_info_existing_thumbnails(
         chunk_byte_size=8192,
     )
 
-    byte_stream = io.BytesIO(minimal_image)
+    byte_stream = io.BytesIO(media_fixture_by_filename)
     await io_handler.upload(
         libression.entities.io.FileStreamInfos(
             file_streams={
@@ -161,17 +161,17 @@ async def test_get_files_info_existing_thumbnails(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "io_handler_fixture_name, minimal_image",
+    "io_handler_fixture_name, media_fixture_by_filename",
     [
-        ("docker_webdav_io_handler", "png"),
+        ("docker_webdav_io_handler", "minimal.png"),
     ],
-    indirect=["minimal_image"],
+    indirect=["media_fixture_by_filename"],
 )
 async def test_delete_files(
     db_client,
     io_handler_fixture_name,
     request: pytest.FixtureRequest,
-    minimal_image,
+    media_fixture_by_filename,
     dummy_folder_name,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
@@ -189,11 +189,13 @@ async def test_delete_files(
         libression.entities.io.FileStreamInfos(
             file_streams={
                 png_file_key: libression.entities.io.FileStreamInfo(
-                    file_stream=io.BytesIO(minimal_image),
+                    file_stream=io.BytesIO(media_fixture_by_filename),
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
                 ),
                 f"{dummy_folder_name}/{png_file_key}": libression.entities.io.FileStreamInfo(
-                    file_stream=io.BytesIO(minimal_image),  # fresh bytesIO copy
+                    file_stream=io.BytesIO(
+                        media_fixture_by_filename
+                    ),  # fresh bytesIO copy
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
                 ),
             }
@@ -225,17 +227,17 @@ async def test_delete_files(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "io_handler_fixture_name, minimal_image",
+    "io_handler_fixture_name, media_fixture_by_filename",
     [
-        ("docker_webdav_io_handler", "png"),
+        ("docker_webdav_io_handler", "minimal.png"),
     ],
-    indirect=["minimal_image"],
+    indirect=["media_fixture_by_filename"],
 )
 async def test_copy_files(
     db_client,
     io_handler_fixture_name,
     request: pytest.FixtureRequest,
-    minimal_image,
+    media_fixture_by_filename,
     dummy_folder_name,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
@@ -253,11 +255,13 @@ async def test_copy_files(
         libression.entities.io.FileStreamInfos(
             file_streams={
                 png_file_key: libression.entities.io.FileStreamInfo(
-                    file_stream=io.BytesIO(minimal_image),
+                    file_stream=io.BytesIO(media_fixture_by_filename),
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
                 ),
                 f"{dummy_folder_name}/{png_file_key}": libression.entities.io.FileStreamInfo(
-                    file_stream=io.BytesIO(minimal_image),  # fresh bytesIO copy
+                    file_stream=io.BytesIO(
+                        media_fixture_by_filename
+                    ),  # fresh bytesIO copy
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
                 ),
             }
@@ -324,17 +328,17 @@ async def test_copy_files(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "io_handler_fixture_name, minimal_image",
+    "io_handler_fixture_name, media_fixture_by_filename",
     [
-        ("docker_webdav_io_handler", "png"),
+        ("docker_webdav_io_handler", "minimal.png"),
     ],
-    indirect=["minimal_image"],
+    indirect=["media_fixture_by_filename"],
 )
 async def test_move_files(
     db_client,
     io_handler_fixture_name,
     request: pytest.FixtureRequest,
-    minimal_image,
+    media_fixture_by_filename,
     dummy_folder_name,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
@@ -352,11 +356,13 @@ async def test_move_files(
         libression.entities.io.FileStreamInfos(
             file_streams={
                 png_file_key: libression.entities.io.FileStreamInfo(
-                    file_stream=io.BytesIO(minimal_image),
+                    file_stream=io.BytesIO(media_fixture_by_filename),
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
                 ),
                 f"{dummy_folder_name}/{png_file_key}": libression.entities.io.FileStreamInfo(
-                    file_stream=io.BytesIO(minimal_image),  # fresh bytesIO copy
+                    file_stream=io.BytesIO(
+                        media_fixture_by_filename
+                    ),  # fresh bytesIO copy
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
                 ),
             }
@@ -422,23 +428,41 @@ async def test_move_files(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "io_handler_fixture_name, delete_source, minimal_image, has_data_in_io, has_cache_in_io, original_count,success_count, overlap_file_entity_uuid_count",
+    "io_handler_fixture_name, delete_source, media_fixture_by_filename, has_data_in_io, has_cache_in_io, original_count,success_count, overlap_file_entity_uuid_count",
     [
         # 1 good entry + the following (problematic)
-        ("docker_webdav_io_handler", True, "png", True, False, 0, 1 + 1, 2),  # MOVE
-        ("docker_webdav_io_handler", True, "png", False, True, 0, 1, 1),
-        ("docker_webdav_io_handler", True, "png", False, False, 0, 1, 1),
-        ("docker_webdav_io_handler", False, "png", True, False, 2, 1 + 1, 0),  # COPY
-        ("docker_webdav_io_handler", False, "png", False, True, 1, 1, 0),
-        ("docker_webdav_io_handler", False, "png", False, False, 1, 1, 0),
+        (
+            "docker_webdav_io_handler",
+            True,
+            "minimal.png",
+            True,
+            False,
+            0,
+            1 + 1,
+            2,
+        ),  # MOVE
+        ("docker_webdav_io_handler", True, "minimal.png", False, True, 0, 1, 1),
+        ("docker_webdav_io_handler", True, "minimal.png", False, False, 0, 1, 1),
+        (
+            "docker_webdav_io_handler",
+            False,
+            "minimal.png",
+            True,
+            False,
+            2,
+            1 + 1,
+            0,
+        ),  # COPY
+        ("docker_webdav_io_handler", False, "minimal.png", False, True, 1, 1, 0),
+        ("docker_webdav_io_handler", False, "minimal.png", False, False, 1, 1, 0),
     ],
-    indirect=["minimal_image"],
+    indirect=["media_fixture_by_filename"],
 )
 async def test_copy_files_with_missing_files(
     db_client,
     io_handler_fixture_name,
     request: pytest.FixtureRequest,
-    minimal_image,
+    media_fixture_by_filename,
     delete_source,
     has_data_in_io,
     has_cache_in_io,
@@ -463,11 +487,13 @@ async def test_copy_files_with_missing_files(
         libression.entities.io.FileStreamInfos(
             file_streams={
                 png_file_key: libression.entities.io.FileStreamInfo(
-                    file_stream=io.BytesIO(minimal_image),
+                    file_stream=io.BytesIO(media_fixture_by_filename),
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
                 ),
                 missing_files_key: libression.entities.io.FileStreamInfo(
-                    file_stream=io.BytesIO(minimal_image),  # fresh bytesIO copy
+                    file_stream=io.BytesIO(
+                        media_fixture_by_filename
+                    ),  # fresh bytesIO copy
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
                 ),
             }
@@ -535,20 +561,20 @@ async def test_copy_files_with_missing_files(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "io_handler_fixture_name, minimal_image, has_data_in_io, has_cache_in_io, success_count",
+    "io_handler_fixture_name, media_fixture_by_filename, has_data_in_io, has_cache_in_io, success_count",
     [
         # 1 good entry + the following (problematic)
-        ("docker_webdav_io_handler", "png", True, False, 1 + 1),
-        ("docker_webdav_io_handler", "png", False, True, 1),
-        ("docker_webdav_io_handler", "png", False, False, 1),
+        ("docker_webdav_io_handler", "minimal.png", True, False, 1 + 1),
+        ("docker_webdav_io_handler", "minimal.png", False, True, 1),
+        ("docker_webdav_io_handler", "minimal.png", False, False, 1),
     ],
-    indirect=["minimal_image"],
+    indirect=["media_fixture_by_filename"],
 )
 async def test_move_copy_with_missing_files(
     db_client,
     io_handler_fixture_name,
     request: pytest.FixtureRequest,
-    minimal_image,
+    media_fixture_by_filename,
     has_data_in_io,
     has_cache_in_io,
     dummy_folder_name,
@@ -570,11 +596,13 @@ async def test_move_copy_with_missing_files(
         libression.entities.io.FileStreamInfos(
             file_streams={
                 png_file_key: libression.entities.io.FileStreamInfo(
-                    file_stream=io.BytesIO(minimal_image),
+                    file_stream=io.BytesIO(media_fixture_by_filename),
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
                 ),
                 missing_files_key: libression.entities.io.FileStreamInfo(
-                    file_stream=io.BytesIO(minimal_image),  # fresh bytesIO copy
+                    file_stream=io.BytesIO(
+                        media_fixture_by_filename
+                    ),  # fresh bytesIO copy
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
                 ),
             }
@@ -647,17 +675,17 @@ async def test_move_copy_with_missing_files(
 @pytest.mark.asyncio
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "io_handler_fixture_name, minimal_image",
+    "io_handler_fixture_name, media_fixture_by_filename",
     [
-        ("docker_webdav_io_handler", "png"),
+        ("docker_webdav_io_handler", "minimal.png"),
     ],
-    indirect=["minimal_image"],
+    indirect=["media_fixture_by_filename"],
 )
 async def test_get_presigned_urls(
     db_client,
     io_handler_fixture_name,
     request: pytest.FixtureRequest,
-    minimal_image,
+    media_fixture_by_filename,
     dummy_folder_name,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
@@ -675,11 +703,13 @@ async def test_get_presigned_urls(
         libression.entities.io.FileStreamInfos(
             file_streams={
                 png_file_key: libression.entities.io.FileStreamInfo(
-                    file_stream=io.BytesIO(minimal_image),
+                    file_stream=io.BytesIO(media_fixture_by_filename),
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
                 ),
                 f"{dummy_folder_name}/{png_file_key}": libression.entities.io.FileStreamInfo(
-                    file_stream=io.BytesIO(minimal_image),  # fresh bytesIO copy
+                    file_stream=io.BytesIO(
+                        media_fixture_by_filename
+                    ),  # fresh bytesIO copy
                     mime_type=libression.entities.media.SupportedMimeType.PNG,
                 ),
             }
@@ -730,17 +760,17 @@ async def test_get_presigned_urls(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "io_handler_fixture_name, minimal_image",
+    "io_handler_fixture_name, media_fixture_by_filename",
     [
-        ("docker_webdav_io_handler", "png"),
+        ("docker_webdav_io_handler", "minimal.png"),
     ],
-    indirect=["minimal_image"],
+    indirect=["media_fixture_by_filename"],
 )
 async def test_upload_media(
     db_client,
     io_handler_fixture_name,
     request: pytest.FixtureRequest,
-    minimal_image,
+    media_fixture_by_filename,
     dummy_folder_name,
 ):
     io_handler = request.getfixturevalue(io_handler_fixture_name)
@@ -756,11 +786,11 @@ async def test_upload_media(
     upload_entries = [
         libression.entities.base.UploadEntry(
             filename="test1.png",
-            file_source=base64.b64encode(minimal_image).decode("utf-8"),
+            file_source=base64.b64encode(media_fixture_by_filename).decode("utf-8"),
         ),
         libression.entities.base.UploadEntry(
             filename="test2.png",
-            file_source=base64.b64encode(minimal_image).decode("utf-8"),
+            file_source=base64.b64encode(media_fixture_by_filename).decode("utf-8"),
         ),
     ]
 

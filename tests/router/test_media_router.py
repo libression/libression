@@ -236,19 +236,19 @@ def test_delete_files(mock_client, mock_media_vault):
 
 
 @pytest.mark.parametrize(
-    "minimal_image",
+    "media_fixture_by_filename",
     [
-        "png",
+        "minimal.png",
     ],
-    indirect=["minimal_image"],
+    indirect=["media_fixture_by_filename"],
 )
-def test_different_file_formats_integration_docker(minimal_image):
+def test_different_file_formats_integration_docker(media_fixture_by_filename):
     base_libression_url = "http://localhost:8000"
     local_webdav_url = (
         "https://localhost:8443"  # nginx self-signed cert (local address)
     )
     docker_webdav_url = "https://webdav:443"  # nginx self-signed cert (docker address)
-    base_64_image = base64.b64encode(minimal_image).decode("utf-8")
+    base_64_image = base64.b64encode(media_fixture_by_filename).decode("utf-8")
     test_dir = f"test/path/{uuid.uuid4()}"
     test_tag = str(uuid.uuid4())
 
@@ -336,7 +336,7 @@ def test_different_file_formats_integration_docker(minimal_image):
         adjusted_file_url = f"{corrected_base_url}/{found_path}"
         file_get_response = httpx.get(adjusted_file_url, verify=False)
         assert file_get_response.status_code == 200
-        assert file_get_response.content == minimal_image
+        assert file_get_response.content == media_fixture_by_filename
 
         # Check thumbnail is accessible
         thumbnail_urls_response = httpx.post(
