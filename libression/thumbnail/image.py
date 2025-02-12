@@ -11,6 +11,7 @@ import libression.config
 import libression.entities.media
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 pillow_heif.register_heif_opener()
 
@@ -95,6 +96,7 @@ def _process_video_frames(
     container: av.container.Container,
     width_in_pixels: int,
     frame_count: int = libression.config.THUMBNAIL_FRAME_COUNT,
+    frame_duration_in_ms: int = libression.config.THUMBNAIL_FRAME_DURATION_IN_MS,
 ) -> bytes | None:
     try:
         if not container.streams.video:
@@ -156,13 +158,46 @@ def _process_video_frames(
                     frame = frame.reformat(width=width_in_pixels, height=height)
                     pil_image = frame.to_image()
 
-                    # Handle rotation
-                    rotation = int(stream.metadata.get("rotate", 0))
+                    # Handle rotation from display matrix
+                    rotation = 0
+                    # First check for display matrix side data
+                    if hasattr(stream, "side_data"):
+                        logger.debug(
+                            f"Side data types: {[sd.type for sd in stream.side_data or []]}"
+                        )
+                        for sd in stream.side_data or []:
+                            if sd.type == "Display Matrix":
+                                # Display matrix rotation is stored in degrees
+                                rotation = -int(
+                                    av.utils.display_matrix_to_rotation(sd.value)
+                                )
+                                logger.debug(
+                                    f"Found display matrix rotation: {rotation}"
+                                )
+                                break
+                    else:
+                        logger.debug("No side_data attribute found on stream")
+
+                    # Fallback to rotate metadata if no display matrix
+                    if rotation == 0:
+                        rotation = int(stream.metadata.get("rotate", 0))
+                        logger.debug(f"Using metadata rotation: {rotation}")
+
+                    logger.debug(f"Final rotation value: {rotation}")
+
+                    # For iPhone videos, the rotation is often stored as -90 instead of 270
+                    if rotation == -90:
+                        rotation = 270
+                        logger.debug("Converting -90 to 270 degrees")
+
                     if rotation == 90:
-                        pil_image = pil_image.transpose(PIL.Image.ROTATE_270)
-                    elif rotation == 270:
+                        logger.debug("Applying ROTATE_90")
                         pil_image = pil_image.transpose(PIL.Image.ROTATE_90)
+                    elif rotation == 270 or rotation == -90:
+                        logger.debug("Applying ROTATE_270")
+                        pil_image = pil_image.transpose(PIL.Image.ROTATE_270)
                     elif rotation == 180:
+                        logger.debug("Applying ROTATE_180")
                         pil_image = pil_image.transpose(PIL.Image.ROTATE_180)
 
                     frames.append(pil_image)
@@ -185,13 +220,46 @@ def _process_video_frames(
                         frame = frame.reformat(width=width_in_pixels, height=height)
                         pil_image = frame.to_image()
 
-                        # Handle rotation
-                        rotation = int(stream.metadata.get("rotate", 0))
+                        # Handle rotation from display matrix
+                        rotation = 0
+                        # First check for display matrix side data
+                        if hasattr(stream, "side_data"):
+                            logger.debug(
+                                f"Side data types: {[sd.type for sd in stream.side_data or []]}"
+                            )
+                            for sd in stream.side_data or []:
+                                if sd.type == "Display Matrix":
+                                    # Display matrix rotation is stored in degrees
+                                    rotation = -int(
+                                        av.utils.display_matrix_to_rotation(sd.value)
+                                    )
+                                    logger.debug(
+                                        f"Found display matrix rotation: {rotation}"
+                                    )
+                                    break
+                        else:
+                            logger.debug("No side_data attribute found on stream")
+
+                        # Fallback to rotate metadata if no display matrix
+                        if rotation == 0:
+                            rotation = int(stream.metadata.get("rotate", 0))
+                            logger.debug(f"Using metadata rotation: {rotation}")
+
+                        logger.debug(f"Final rotation value: {rotation}")
+
+                        # For iPhone videos, the rotation is often stored as -90 instead of 270
+                        if rotation == -90:
+                            rotation = 270
+                            logger.debug("Converting -90 to 270 degrees")
+
                         if rotation == 90:
-                            pil_image = pil_image.transpose(PIL.Image.ROTATE_270)
-                        elif rotation == 270:
+                            logger.debug("Applying ROTATE_90")
                             pil_image = pil_image.transpose(PIL.Image.ROTATE_90)
+                        elif rotation == 270 or rotation == -90:
+                            logger.debug("Applying ROTATE_270")
+                            pil_image = pil_image.transpose(PIL.Image.ROTATE_270)
                         elif rotation == 180:
+                            logger.debug("Applying ROTATE_180")
                             pil_image = pil_image.transpose(PIL.Image.ROTATE_180)
 
                         frames.append(pil_image)
@@ -237,7 +305,7 @@ def _process_video_frames(
             format="GIF",
             save_all=True,
             append_images=processed_frames[1:],
-            duration=200,
+            duration=frame_duration_in_ms,
             loop=0,
         )
 
