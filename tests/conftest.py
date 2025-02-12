@@ -41,7 +41,7 @@ def docker_webdav_io_handler():
 
 
 @pytest.fixture
-def minimal_image(request) -> bytes:
+def media_fixture_by_filename(request) -> bytes:
     """
     Fixture for loading test images in different formats.
     Usage:
@@ -49,11 +49,23 @@ def minimal_image(request) -> bytes:
         def test_jpeg_only(dark_square_image):
             ...
     """
-    file_format = request.param  # raise if not provided
+    file_name = request.param  # raise if not provided
     filepath = os.path.join(
         os.path.dirname(__file__),
         "fixtures",
-        f"minimal.{file_format}",
+        file_name,
+    )
+    with open(filepath, "rb") as f:
+        content = f.read()
+    return content
+
+
+@pytest.fixture
+def short_mp4_video() -> bytes:
+    filepath = os.path.join(
+        os.path.dirname(__file__),
+        "fixtures",
+        "short.mp4",
     )
     with open(filepath, "rb") as f:
         content = f.read()

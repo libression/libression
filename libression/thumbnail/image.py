@@ -94,13 +94,12 @@ def _image_thumbnail_from_opencv(
 def _process_video_frames(
     container: av.container.Container,
     width_in_pixels: int,
-    frame_count: int = 5,
+    frame_count: int = libression.config.THUMBNAIL_FRAME_COUNT,
 ) -> bytes | None:
-    """Common video processing logic for both URL and byte stream inputs"""
     try:
         if not container.streams.video:
             logger.error("No video stream found")
-            return None  # Return empty bytes for invalid images
+            return None
 
         stream = container.streams.video[0]
         frames: list[PIL.Image.Image] = []
@@ -109,7 +108,8 @@ def _process_video_frames(
             f"Video info: format={container.format.name}, "
             f"duration={stream.duration}, "
             f"frames={stream.frames}, "
-            f"fps={stream.average_rate}"
+            f"fps={stream.average_rate}, "
+            f"rotation={stream.metadata.get('rotate', 0)}"
         )
 
         # Special handling for GIFs
@@ -136,85 +136,122 @@ def _process_video_frames(
                 )  # Default to 100ms if no duration
 
         else:
+            logger.debug("Processing video file...")
             stream.thread_type = "AUTO"
-            container.seek(0)  # Reset to start
+            container.seek(0)
 
-            # First try: Just get first few frames sequentially
-            for frame in container.decode(video=0):
-                height = int(frame.height * width_in_pixels / frame.width)
-                frame = frame.reformat(width=width_in_pixels, height=height)
-                frames.append(frame.to_image())
-                if len(frames) >= 2:  # We only need 2 frames minimum
-                    break
+            # First count total frames
+            total_frames = 0
+            for _ in container.decode(video=0):
+                total_frames += 1
 
-            # If that didn't work, try seeking
-            if len(frames) < 2 and stream.duration and stream.duration > 0:
-                logger.debug("Trying seek strategy")
-                container.seek(stream.duration // 2)  # Try middle of video
-                try:
-                    frame = next(container.decode(video=0))
+            logger.debug(f"Total frames in video: {total_frames}")
+            container.seek(0)
+
+            # If we have less than requested frames, just get all of them
+            if total_frames <= frame_count:
+                frames = []
+                for frame in container.decode(video=0):
                     height = int(frame.height * width_in_pixels / frame.width)
                     frame = frame.reformat(width=width_in_pixels, height=height)
-                    frames.append(frame.to_image())
-                except StopIteration:
-                    pass
+                    pil_image = frame.to_image()
+
+                    # Handle rotation
+                    rotation = int(stream.metadata.get("rotate", 0))
+                    if rotation == 90:
+                        pil_image = pil_image.transpose(PIL.Image.ROTATE_270)
+                    elif rotation == 270:
+                        pil_image = pil_image.transpose(PIL.Image.ROTATE_90)
+                    elif rotation == 180:
+                        pil_image = pil_image.transpose(PIL.Image.ROTATE_180)
+
+                    frames.append(pil_image)
+
+            # If we have more frames than requested, get evenly spaced frames
+            else:
+                frame_interval = total_frames // (
+                    frame_count - 1
+                )  # -1 because we include last frame
+                frame_positions = [i * frame_interval for i in range(frame_count - 1)]
+                frame_positions.append(total_frames - 1)  # Last frame
+
+                logger.debug(f"Getting frames at positions: {frame_positions}")
+
+                frames = []
+                current_frame = 0
+                for frame in container.decode(video=0):
+                    if current_frame in frame_positions:
+                        height = int(frame.height * width_in_pixels / frame.width)
+                        frame = frame.reformat(width=width_in_pixels, height=height)
+                        pil_image = frame.to_image()
+
+                        # Handle rotation
+                        rotation = int(stream.metadata.get("rotate", 0))
+                        if rotation == 90:
+                            pil_image = pil_image.transpose(PIL.Image.ROTATE_270)
+                        elif rotation == 270:
+                            pil_image = pil_image.transpose(PIL.Image.ROTATE_90)
+                        elif rotation == 180:
+                            pil_image = pil_image.transpose(PIL.Image.ROTATE_180)
+
+                        frames.append(pil_image)
+                        if len(frames) >= frame_count:
+                            break
+                    current_frame += 1
+
+            logger.debug(f"Collected {len(frames)} frames")
 
         if not frames:
             raise RuntimeError("No frames found in video/gif")
 
-        # Ensure we have at least 2 frames
-        if len(frames) == 1:
-            frames.append(frames[0])
-
-        logger.debug(f"Extracted {len(frames)} frames")
-
         # Create output GIF with explicit animation settings
+        logger.debug(f"About to create GIF with {len(frames)} frames")
         gif_buffer = io.BytesIO()
-        frames[0].save(
+
+        # Ensure we have exactly 5 frames
+        if len(frames) < frame_count:
+            logger.warning(f"Only got {len(frames)} frames, expected {frame_count}")
+        elif len(frames) > frame_count:
+            # Take first, last, and three evenly spaced frames in between
+            indices = [
+                0,
+                len(frames) // 4,
+                len(frames) // 2,
+                (3 * len(frames)) // 4,
+                len(frames) - 1,
+            ]
+            frames = [frames[i] for i in indices]
+
+        # Convert frames to P mode
+        processed_frames = []
+        for i, frame in enumerate(frames):
+            frame = frame.convert("P", palette=PIL.Image.Palette.ADAPTIVE)
+            processed_frames.append(frame)
+            logger.debug(f"Frame {i}: size={frame.size}, mode={frame.mode}")
+
+        logger.debug(f"Processed {len(processed_frames)} frames for GIF")
+
+        # Save all frames at once
+        processed_frames[0].save(
             gif_buffer,
             format="GIF",
             save_all=True,
-            append_images=frames[1:],
-            duration=1000,
+            append_images=processed_frames[1:],
+            duration=200,
             loop=0,
-            disposal=2,
-            version="GIF89a",
         )
-
-        # Verify the GIF is animated
-        gif_buffer.seek(0)
-        test_gif = PIL.Image.open(gif_buffer)
-        logger.debug(
-            f"Output GIF info: animated={test_gif.is_animated}, "
-            f"n_frames={getattr(test_gif, 'n_frames', 1)}"
-        )
-
-        if not test_gif.is_animated:
-            logger.error("Failed to create animated GIF")
-            # Force animation by duplicating frame
-            gif_buffer = io.BytesIO()
-            frames[0].save(
-                gif_buffer,
-                format="GIF",
-                save_all=True,
-                append_images=[frames[0]],  # Duplicate first frame
-                duration=1000,
-                loop=0,
-                disposal=2,
-                version="GIF89a",
-            )
 
         return gif_buffer.getvalue()
 
     except Exception as e:
         logger.error(f"Error processing video frames: {e}")
-        return None  # Return empty bytes for invalid images
+        return None
 
 
 def _video_thumbnail_from_av(
     byte_stream: typing.BinaryIO,
     width_in_pixels: int,
-    frame_count: int = 5,
+    frame_count: int = libression.config.THUMBNAIL_FRAME_COUNT,
 ) -> bytes | None:
     try:
         container = av.open(byte_stream)
@@ -230,7 +267,7 @@ def _video_thumbnail_from_av(
 def _video_thumbnail_from_av_with_url(
     url: str,
     width_in_pixels: int,
-    frame_count: int = 5,
+    frame_count: int = libression.config.THUMBNAIL_FRAME_COUNT,
 ) -> bytes | None:
     try:
         container = av.open(url)

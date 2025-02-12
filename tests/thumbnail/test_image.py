@@ -9,22 +9,22 @@ import libression.entities.media
 import libression.thumbnail
 
 
-# minimal_image parameterized fixture
+# media_fixture_by_filename parameterized fixture
 @pytest.mark.parametrize(
-    "minimal_image,mime_type",
+    "media_fixture_by_filename,mime_type",
     [
-        ("jpg", libression.entities.media.SupportedMimeType.JPEG),
-        ("png", libression.entities.media.SupportedMimeType.PNG),
-        ("tiff", libression.entities.media.SupportedMimeType.TIFF),
-        ("webp", libression.entities.media.SupportedMimeType.WEBP),
-        ("heic", libression.entities.media.SupportedMimeType.HEIC),
-        ("heif", libression.entities.media.SupportedMimeType.HEIF),
+        ("minimal.jpg", libression.entities.media.SupportedMimeType.JPEG),
+        ("minimal.png", libression.entities.media.SupportedMimeType.PNG),
+        ("minimal.tiff", libression.entities.media.SupportedMimeType.TIFF),
+        ("minimal.webp", libression.entities.media.SupportedMimeType.WEBP),
+        ("minimal.heic", libression.entities.media.SupportedMimeType.HEIC),
+        ("minimal.heif", libression.entities.media.SupportedMimeType.HEIF),
     ],
-    indirect=["minimal_image"],
+    indirect=["media_fixture_by_filename"],
 )
-def test_generate_image_thumbnail(minimal_image, mime_type):
+def test_generate_image_thumbnail(media_fixture_by_filename, mime_type):
     # Prepare a byte stream for the test
-    byte_stream = io.BytesIO(minimal_image)
+    byte_stream = io.BytesIO(media_fixture_by_filename)
 
     # Generate the thumbnail
     thumbnail = libression.thumbnail.image.generate(byte_stream, 3, mime_type)
@@ -37,22 +37,49 @@ def test_generate_image_thumbnail(minimal_image, mime_type):
     assert img.shape[1] == 3, f"Expected width {3}, got {img.shape[1]}"
 
 
-# minimal_image parameterized fixture
+# media_fixture_by_filename parameterized fixture
 @pytest.mark.parametrize(
-    "minimal_image,mime_type",
+    "media_fixture_by_filename,mime_type,expected_frame_count",
     [
-        ("gif", libression.entities.media.SupportedMimeType.GIF),
-        ("mp4", libression.entities.media.SupportedMimeType.MP4),
-        ("mpeg", libression.entities.media.SupportedMimeType.MPEG),
-        ("mov", libression.entities.media.SupportedMimeType.QUICKTIME),
-        ("webm", libression.entities.media.SupportedMimeType.WEBM),
-        ("avi", libression.entities.media.SupportedMimeType.X_MS_VIDEO),
+        ("minimal.gif", libression.entities.media.SupportedMimeType.GIF, 2),
+        ("minimal.mp4", libression.entities.media.SupportedMimeType.MP4, 2),
+        ("minimal.mpeg", libression.entities.media.SupportedMimeType.MPEG, 2),
+        ("minimal.mov", libression.entities.media.SupportedMimeType.QUICKTIME, 2),
+        ("minimal.webm", libression.entities.media.SupportedMimeType.WEBM, 2),
+        ("minimal.avi", libression.entities.media.SupportedMimeType.X_MS_VIDEO, 2),
+        (
+            "minimal_15_frames.gif",
+            libression.entities.media.SupportedMimeType.GIF,
+            libression.config.THUMBNAIL_FRAME_COUNT,
+        ),
+        (
+            "minimal_15_frames.mp4",
+            libression.entities.media.SupportedMimeType.MP4,
+            libression.config.THUMBNAIL_FRAME_COUNT,
+        ),
+        (
+            "minimal_15_frames.mpeg",
+            libression.entities.media.SupportedMimeType.MPEG,
+            libression.config.THUMBNAIL_FRAME_COUNT,
+        ),
+        (
+            "minimal_15_frames.mov",
+            libression.entities.media.SupportedMimeType.QUICKTIME,
+            libression.config.THUMBNAIL_FRAME_COUNT,
+        ),
+        (
+            "minimal_15_frames.avi",
+            libression.entities.media.SupportedMimeType.X_MS_VIDEO,
+            libression.config.THUMBNAIL_FRAME_COUNT,
+        ),
     ],
-    indirect=["minimal_image"],
+    indirect=["media_fixture_by_filename"],
 )
-def test_av_generate_video_thumbnail(minimal_image, mime_type):
+def test_av_generate_video_thumbnail(
+    media_fixture_by_filename, mime_type, expected_frame_count
+):
     # Prepare a byte stream for the test
-    byte_stream = io.BytesIO(minimal_image)
+    byte_stream = io.BytesIO(media_fixture_by_filename)
 
     # Generate the thumbnail
     thumbnail = libression.thumbnail.image.generate(byte_stream, 3, mime_type)
@@ -70,3 +97,6 @@ def test_av_generate_video_thumbnail(minimal_image, mime_type):
     # Check dimensions
     assert gif.width == 3, f"Expected width 3, got {gif.width}"
     assert gif.is_animated, "GIF should be animated"
+    assert (
+        gif.n_frames == expected_frame_count
+    ), f"Expected {expected_frame_count} frames, got {gif.n_frames}"
