@@ -1,7 +1,6 @@
 import io
 import logging
 import typing
-import av
 import cv2
 import numpy
 import httpx
@@ -9,6 +8,13 @@ import PIL.Image
 import pillow_heif
 import libression.config
 import libression.entities.media
+import ffmpeg
+import tempfile
+import os
+from typing import Optional
+import shutil
+import subprocess
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -92,260 +98,82 @@ def _image_thumbnail_from_opencv(
         byte_stream.seek(0)
 
 
-def _process_video_frames(
-    container: av.container.Container,
-    width_in_pixels: int,
-    frame_count: int = libression.config.THUMBNAIL_FRAME_COUNT,
-    frame_duration_in_ms: int = libression.config.THUMBNAIL_FRAME_DURATION_IN_MS,
-) -> bytes | None:
-    try:
-        if not container.streams.video:
-            logger.error("No video stream found")
-            return None
-
-        stream = container.streams.video[0]
-        frames: list[PIL.Image.Image] = []
-
-        logger.debug(
-            f"Video info: format={container.format.name}, "
-            f"duration={stream.duration}, "
-            f"frames={stream.frames}, "
-            f"fps={stream.average_rate}, "
-            f"rotation={stream.metadata.get('rotate', 0)}"
-        )
-
-        # Special handling for GIFs
-        is_gif = container.format.name == "gif"
-        if is_gif:
-            # For GIFs, try to keep original frame timing
-            frame_count = min(frame_count, stream.frames or 10)  # Limit frames
-            frames = []
-            durations = []
-
-            for frame in container.decode(video=0):
-                if len(frames) >= frame_count:
-                    break
-
-                # Resize frame
-                height = int(frame.height * width_in_pixels / frame.width)
-                frame = frame.reformat(width=width_in_pixels, height=height)
-                frames.append(frame.to_image())
-
-                # Get frame duration in milliseconds
-                duration = frame.time_base * frame.pts * 1000
-                durations.append(
-                    int(duration) or 100
-                )  # Default to 100ms if no duration
-
-        else:
-            logger.debug("Processing video file...")
-            stream.thread_type = "AUTO"
-            container.seek(0)
-
-            # First count total frames
-            total_frames = 0
-            for _ in container.decode(video=0):
-                total_frames += 1
-
-            logger.debug(f"Total frames in video: {total_frames}")
-            container.seek(0)
-
-            # If we have less than requested frames, just get all of them
-            if total_frames <= frame_count:
-                frames = []
-                for frame in container.decode(video=0):
-                    height = int(frame.height * width_in_pixels / frame.width)
-                    frame = frame.reformat(width=width_in_pixels, height=height)
-                    pil_image = frame.to_image()
-
-                    # Handle rotation from display matrix
-                    rotation = 0
-                    # First check for display matrix side data
-                    if hasattr(stream, "side_data"):
-                        logger.debug(
-                            f"Side data types: {[sd.type for sd in stream.side_data or []]}"
-                        )
-                        for sd in stream.side_data or []:
-                            if sd.type == "Display Matrix":
-                                # Display matrix rotation is stored in degrees
-                                rotation = -int(
-                                    av.utils.display_matrix_to_rotation(sd.value)
-                                )
-                                logger.debug(
-                                    f"Found display matrix rotation: {rotation}"
-                                )
-                                break
-                    else:
-                        logger.debug("No side_data attribute found on stream")
-
-                    # Fallback to rotate metadata if no display matrix
-                    if rotation == 0:
-                        rotation = int(stream.metadata.get("rotate", 0))
-                        logger.debug(f"Using metadata rotation: {rotation}")
-
-                    logger.debug(f"Final rotation value: {rotation}")
-
-                    # For iPhone videos, the rotation is often stored as -90 instead of 270
-                    if rotation == -90:
-                        rotation = 270
-                        logger.debug("Converting -90 to 270 degrees")
-
-                    if rotation == 90:
-                        logger.debug("Applying ROTATE_90")
-                        pil_image = pil_image.transpose(PIL.Image.ROTATE_90)
-                    elif rotation == 270 or rotation == -90:
-                        logger.debug("Applying ROTATE_270")
-                        pil_image = pil_image.transpose(PIL.Image.ROTATE_270)
-                    elif rotation == 180:
-                        logger.debug("Applying ROTATE_180")
-                        pil_image = pil_image.transpose(PIL.Image.ROTATE_180)
-
-                    frames.append(pil_image)
-
-            # If we have more frames than requested, get evenly spaced frames
-            else:
-                frame_interval = total_frames // (
-                    frame_count - 1
-                )  # -1 because we include last frame
-                frame_positions = [i * frame_interval for i in range(frame_count - 1)]
-                frame_positions.append(total_frames - 1)  # Last frame
-
-                logger.debug(f"Getting frames at positions: {frame_positions}")
-
-                frames = []
-                current_frame = 0
-                for frame in container.decode(video=0):
-                    if current_frame in frame_positions:
-                        height = int(frame.height * width_in_pixels / frame.width)
-                        frame = frame.reformat(width=width_in_pixels, height=height)
-                        pil_image = frame.to_image()
-
-                        # Handle rotation from display matrix
-                        rotation = 0
-                        # First check for display matrix side data
-                        if hasattr(stream, "side_data"):
-                            logger.debug(
-                                f"Side data types: {[sd.type for sd in stream.side_data or []]}"
-                            )
-                            for sd in stream.side_data or []:
-                                if sd.type == "Display Matrix":
-                                    # Display matrix rotation is stored in degrees
-                                    rotation = -int(
-                                        av.utils.display_matrix_to_rotation(sd.value)
-                                    )
-                                    logger.debug(
-                                        f"Found display matrix rotation: {rotation}"
-                                    )
-                                    break
-                        else:
-                            logger.debug("No side_data attribute found on stream")
-
-                        # Fallback to rotate metadata if no display matrix
-                        if rotation == 0:
-                            rotation = int(stream.metadata.get("rotate", 0))
-                            logger.debug(f"Using metadata rotation: {rotation}")
-
-                        logger.debug(f"Final rotation value: {rotation}")
-
-                        # For iPhone videos, the rotation is often stored as -90 instead of 270
-                        if rotation == -90:
-                            rotation = 270
-                            logger.debug("Converting -90 to 270 degrees")
-
-                        if rotation == 90:
-                            logger.debug("Applying ROTATE_90")
-                            pil_image = pil_image.transpose(PIL.Image.ROTATE_90)
-                        elif rotation == 270 or rotation == -90:
-                            logger.debug("Applying ROTATE_270")
-                            pil_image = pil_image.transpose(PIL.Image.ROTATE_270)
-                        elif rotation == 180:
-                            logger.debug("Applying ROTATE_180")
-                            pil_image = pil_image.transpose(PIL.Image.ROTATE_180)
-
-                        frames.append(pil_image)
-                        if len(frames) >= frame_count:
-                            break
-                    current_frame += 1
-
-            logger.debug(f"Collected {len(frames)} frames")
-
-        if not frames:
-            raise RuntimeError("No frames found in video/gif")
-
-        # Create output GIF with explicit animation settings
-        logger.debug(f"About to create GIF with {len(frames)} frames")
-        gif_buffer = io.BytesIO()
-
-        # Ensure we have exactly 5 frames
-        if len(frames) < frame_count:
-            logger.warning(f"Only got {len(frames)} frames, expected {frame_count}")
-        elif len(frames) > frame_count:
-            # Take first, last, and three evenly spaced frames in between
-            indices = [
-                0,
-                len(frames) // 4,
-                len(frames) // 2,
-                (3 * len(frames)) // 4,
-                len(frames) - 1,
-            ]
-            frames = [frames[i] for i in indices]
-
-        # Convert frames to P mode
-        processed_frames = []
-        for i, frame in enumerate(frames):
-            frame = frame.convert("P", palette=PIL.Image.Palette.ADAPTIVE)
-            processed_frames.append(frame)
-            logger.debug(f"Frame {i}: size={frame.size}, mode={frame.mode}")
-
-        logger.debug(f"Processed {len(processed_frames)} frames for GIF")
-
-        # Save all frames at once
-        processed_frames[0].save(
-            gif_buffer,
-            format="GIF",
-            save_all=True,
-            append_images=processed_frames[1:],
-            duration=frame_duration_in_ms,
-            loop=0,
-        )
-
-        return gif_buffer.getvalue()
-
-    except Exception as e:
-        logger.error(f"Error processing video frames: {e}")
-        return None
-
-
-def _video_thumbnail_from_av(
+def _video_thumbnail_from_ffmpeg(
     byte_stream: typing.BinaryIO,
     width_in_pixels: int,
     frame_count: int = libression.config.THUMBNAIL_FRAME_COUNT,
 ) -> bytes | None:
     try:
-        container = av.open(byte_stream)
-        return _process_video_frames(container, width_in_pixels, frame_count)
-    except (av.error.OSError, av.error.InvalidDataError) as e:
-        logger.error(f"Error processing video/gif from byte stream: {e}")
-        return None  # Return empty bytes for invalid images
-    finally:
-        if "container" in locals():
-            container.close()
+        # Ensure width is even
+        width_in_pixels = (width_in_pixels // 2) * 2
 
+        # Write input to temp file since ffmpeg-python needs a file path
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as temp_input:
+            temp_input.write(byte_stream.read())
+            temp_input.flush()
 
-def _video_thumbnail_from_av_with_url(
-    url: str,
-    width_in_pixels: int,
-    frame_count: int = libression.config.THUMBNAIL_FRAME_COUNT,
-) -> bytes | None:
-    try:
-        container = av.open(url)
-        return _process_video_frames(container, width_in_pixels, frame_count)
-    except (av.error.OSError, av.error.InvalidDataError) as e:
-        logger.error(f"Error processing video/gif from URL: {e}")
-        return None  # Return empty bytes for invalid images
-    finally:
-        if "container" in locals():
-            container.close()
+            # Get input video information
+            probe = ffmpeg.probe(temp_input.name)
+            video_info = next(s for s in probe["streams"] if s["codec_type"] == "video")
+
+            # Get dimensions considering rotation
+            input_width = int(video_info["width"])
+            input_height = int(video_info["height"])
+
+            # Check for rotation
+            rotation = 0
+            if "side_data_list" in video_info:
+                for data in video_info["side_data_list"]:
+                    if data.get("rotation") is not None:
+                        rotation = abs(int(data["rotation"]))
+
+            # Swap dimensions if video is rotated 90 or 270 degrees
+            if rotation in [90, 270]:
+                input_width, input_height = input_height, input_width
+
+            # Calculate output height maintaining aspect ratio
+            output_height = max(
+                (width_in_pixels * input_height // input_width) // 2 * 2, 2
+            )
+
+            logger.debug(
+                f"Input dimensions: {input_width}x{input_height}, rotation: {rotation}"
+            )
+            logger.debug(f"Output dimensions: {width_in_pixels}x{output_height}")
+
+            # Create temp output file
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as temp_output:
+                # Build the ffmpeg pipeline
+                stream = ffmpeg.input(temp_input.name).output(
+                    temp_output.name,
+                    s=f"{width_in_pixels}x{output_height}",  # explicit dimensions
+                    r=2,  # 2 fps
+                    vcodec="mpeg4",  # simpler codec
+                    pix_fmt="yuv420p",  # force pixel format
+                    an=None,  # remove audio stream
+                    y=None,  # overwrite output
+                )
+
+                # Get the ffmpeg command for debugging
+                cmd = ffmpeg.compile(stream)
+                logger.debug(f"FFmpeg command: {' '.join(cmd)}")
+
+                # Run the ffmpeg command
+                logger.debug("Running ffmpeg command...")
+                ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
+
+                # Read the result
+                temp_output.seek(0)
+                result = temp_output.read()
+                logger.debug(f"Generated thumbnail video: size={len(result)} bytes")
+                return result
+
+    except ffmpeg.Error as e:
+        logger.error(f"FFmpeg error: {e.stderr.decode() if e.stderr else str(e)}")
+        return None
+    except Exception as e:
+        logger.error(f"Error processing video: {e}")
+        return None
 
 
 def generate(
@@ -358,9 +186,79 @@ def generate(
     elif mime_type in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES:
         return _image_thumbnail_from_opencv(byte_stream, width_in_pixels)
     elif mime_type in libression.entities.media.AV_PROCESSING_MIME_TYPES:
-        return _video_thumbnail_from_av(byte_stream, width_in_pixels)
+        return _video_thumbnail_from_ffmpeg(byte_stream, width_in_pixels)
 
     return None  # Return empty bytes for invalid images
+
+
+def _get_ffmpeg_path() -> Optional[str]:
+    """Get the path to ffmpeg executable."""
+    return shutil.which("ffmpeg")
+
+
+def generate_video_thumbnail(
+    input_path: str, width_pixels: int = 400, duration_seconds: int = 5, fps: int = 2
+) -> bytes:
+    """Generate a video thumbnail and return the bytes."""
+    ffmpeg_path = _get_ffmpeg_path()
+    if not ffmpeg_path:
+        raise RuntimeError("FFmpeg is not installed or not found in PATH")
+
+    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_output:
+        try:
+            # Exactly match the working command
+            cmd = [
+                ffmpeg_path,
+                "-noautorotate",
+                "-i",
+                input_path,
+                "-vf",
+                f"fps={fps},scale=w='if(lt(ih,iw),{width_pixels}*iw/ih,{width_pixels})':h='if(lt(ih,iw),{width_pixels},{width_pixels}*ih/iw)',crop={width_pixels}:{width_pixels}:(iw-{width_pixels})/2:(ih-{width_pixels})/2",
+                "-t",
+                str(duration_seconds),
+                "-c:v",
+                "libx264",
+                "-an",
+                "-pix_fmt",
+                "yuv420p",
+                "-y",
+                temp_output.name,
+            ]
+
+            # Don't capture output in text mode, use binary
+            process = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=False,  # Changed to handle binary output
+            )
+
+            if process.returncode != 0:
+                raise RuntimeError(f"FFmpeg error: {process.stderr.decode()}")
+
+            # Read the output file
+            with open(temp_output.name, "rb") as f:
+                return f.read()
+
+        finally:
+            # Clean up the temporary file
+            if os.path.exists(temp_output.name):
+                os.unlink(temp_output.name)
+
+
+def create_square_video_thumbnail_from_presigned_url(
+    presigned_url: str, width_pixels: int = 400, duration_seconds: int = 5, fps: int = 2
+) -> Optional[bytes]:
+    """Generate a square video thumbnail from a presigned URL"""
+    try:
+        return generate_video_thumbnail(
+            presigned_url,
+            width_pixels=width_pixels,
+            duration_seconds=duration_seconds,
+            fps=fps,
+        )
+    except Exception as e:
+        logger.error(f"Error generating video thumbnail: {str(e)}")
+        return None
 
 
 def generate_from_presigned_url(
@@ -369,11 +267,12 @@ def generate_from_presigned_url(
     width_in_pixels: int,
 ) -> bytes | None:
     if original_mime_type in libression.entities.media.AV_PROCESSING_MIME_TYPES:
-        return _video_thumbnail_from_av_with_url(presigned_url, width_in_pixels)
+        return create_square_video_thumbnail_from_presigned_url(
+            presigned_url, width_in_pixels
+        )
 
-    # Not video, so not as big, get entire file
+    # Not video, so handle as before
     byte_stream: typing.BinaryIO | None = None
-
     try:
         response = httpx.get(presigned_url, verify=False, follow_redirects=True)
         response.raise_for_status()
@@ -386,7 +285,7 @@ def generate_from_presigned_url(
             in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES
         ):
             return _image_thumbnail_from_opencv(byte_stream, width_in_pixels)
-        return None  # Return empty bytes for invalid images
+        return None
     finally:
-        if "byte_stream" in locals() and byte_stream is not None:
+        if byte_stream is not None:
             byte_stream.close()

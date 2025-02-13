@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_CACHE_STATIC_SUFFIX = "thumbnail.jpg"
-DEFAULT_CACHE_DYNAMIC_SUFFIX = "thumbnail.gif"
+DEFAULT_CACHE_DYNAMIC_SUFFIX = "thumbnail.mp4"
 
 
 class _InterimFileProcessContext(typing.NamedTuple):
@@ -42,7 +42,7 @@ def _thumbnail_type_from_mime_type(
     if mime_type_enum in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES:
         return libression.entities.media.SupportedMimeType.JPEG
     if mime_type_enum in libression.entities.media.AV_PROCESSING_MIME_TYPES:
-        return libression.entities.media.SupportedMimeType.GIF
+        return libression.entities.media.SupportedMimeType.MP4
 
     return None
 
@@ -66,7 +66,7 @@ def thumbnail_file_from_original_file(
             thumbnail_mime_type=thumbnail_mime_type,
             original_mime_type=mime_type,
         )
-    elif thumbnail_mime_type == libression.entities.media.SupportedMimeType.GIF:
+    elif thumbnail_mime_type == libression.entities.media.SupportedMimeType.MP4:
         return ThumbnailFile(
             key=f"{file_key}_{default_cache_dynamic_suffix}",
             thumbnail_mime_type=thumbnail_mime_type,
