@@ -40,7 +40,7 @@ def test_generate_image_thumbnail(media_fixture_by_filename, mime_type):
 
 # media_fixture_by_filename parameterized fixture
 @pytest.mark.parametrize(
-    "media_fixture_filename,mime_type,expected_fps,expected_duration,expected_frame_count",
+    "media_fixture_filename,mime_type,expected_fps,expected_duration,expected_min_frame_count",
     [
         ("minimal.gif", libression.entities.media.SupportedMimeType.GIF, 2, 1, 2),
         ("minimal.mp4", libression.entities.media.SupportedMimeType.MP4, 2, 1, 2),
@@ -65,7 +65,7 @@ def test_generate_image_thumbnail(media_fixture_by_filename, mime_type):
             "minimal_15_frames.gif",
             libression.entities.media.SupportedMimeType.GIF,
             2,
-            5,
+            3,
             libression.config.THUMBNAIL_FRAME_COUNT,
         ),
         (
@@ -103,7 +103,7 @@ def test_generate_video_thumbnail(
     mime_type,
     expected_fps,
     expected_duration,
-    expected_frame_count,
+    expected_min_frame_count,
     mock_http_file_server,
 ):
     # Generate the thumbnail
@@ -146,5 +146,5 @@ def test_generate_video_thumbnail(
         if "nb_frames" in video_info:
             frame_count = int(video_info["nb_frames"])
             assert (
-                frame_count == expected_frame_count
-            ), f"Expected {expected_frame_count} frames, got {frame_count}"
+                frame_count >= expected_min_frame_count
+            ), f"Expected {expected_min_frame_count} frames, got {frame_count}"

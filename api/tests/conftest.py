@@ -33,9 +33,9 @@ def docker_webdav_io_handler():
     # TODO Only works if docker compose is running ... configure this...
     # Async to keep same interface as in_memory_io_handler
     handler = libression.io_handler.webdav.WebDAVIOHandler(
-        base_url="https://localhost:8443",  # Updated port
-        url_path="libression_photos",
-        presigned_url_path="readonly_libression_photos",
+        base_url=libression.config.WEBDAV_BASE_URL,  # Updated port
+        url_path=libression.config.WEBDAV_URL_PATH,
+        presigned_url_path=libression.config.WEBDAV_PRESIGNED_URL_PATH,
         verify_ssl=False,
     )  # Default credentials are set in the WebDAVIOHandler class
     yield handler

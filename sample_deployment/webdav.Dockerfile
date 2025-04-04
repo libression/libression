@@ -10,7 +10,7 @@ RUN mkdir -p /var/www/webdav/libression_photos && \
     mkdir -p /var/www/webdav/readonly_libression_photos_cache
 
 # Copy configuration files/scripts
-COPY sample_config/nginx_docker.conf /etc/nginx/nginx.conf
+COPY nginx_docker.conf /etc/nginx/nginx.conf
 COPY webdav-docker-entrypoint.sh /usr/local/bin/
 
 # Set permissions
@@ -20,5 +20,5 @@ RUN chmod +x /usr/local/bin/webdav-docker-entrypoint.sh \
 
 EXPOSE 443
 
-ENTRYPOINT ["webdav-docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/webdav-docker-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]
