@@ -30,6 +30,9 @@ jobs:
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
 
+      - name: Change to API directory
+        run: cd api
+
       - name: Install dependencies
         run: poetry install
 
@@ -41,7 +44,7 @@ jobs:
       - name: Start Docker services
         run: |
           # Start WebDAV service
-          cd sample_deployment
+          cd ../sample_deployment
           docker compose up -d webdav
           # Wait for WebDAV to be ready
           timeout 60s bash -c 'until curl -k --fail https://localhost:8443/libression_photos/ -u $WEBDAV_USER:$WEBDAV_PASSWORD; do sleep 1; done'
