@@ -29,9 +29,28 @@ export const getApiUrl = (
 export const transformWebDAVUrl = (url: string): string => {
   // Remove any port number from the URL first
   const urlWithoutPort = url.replace(/:\d+(?=\/)/, "");
-  // Replace the server URL with caller URL
-  return urlWithoutPort.replace(
-    API_CONFIG.ioBaseUrlServer,
-    API_CONFIG.ioBaseUrlCaller,
+
+  // Get the protocol from the caller URL
+  const callerProtocol = API_CONFIG.ioBaseUrlCaller.startsWith("https://")
+    ? "https://"
+    : "http://";
+
+  // Remove protocol from both URLs for comparison
+  const serverUrlWithoutProtocol = API_CONFIG.ioBaseUrlServer.replace(
+    /^https?:\/\//,
+    "",
   );
+  const callerUrlWithoutProtocol = API_CONFIG.ioBaseUrlCaller.replace(
+    /^https?:\/\//,
+    "",
+  );
+
+  // Replace the server URL with caller URL, preserving the original protocol
+  const urlWithoutProtocol = urlWithoutPort.replace(/^https?:\/\//, "");
+  const transformedUrl = urlWithoutProtocol.replace(
+    serverUrlWithoutProtocol,
+    callerUrlWithoutProtocol,
+  );
+
+  return `${callerProtocol}${transformedUrl}`;
 };

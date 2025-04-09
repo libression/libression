@@ -104,17 +104,21 @@ def _video_thumbnail_from_ffmpeg(
     frame_count: int = libression.config.THUMBNAIL_FRAME_COUNT,
 ) -> bytes | None:
     try:
+        logger.info("Starting video thumbnail generation")
         # Ensure width is even
         width_in_pixels = (width_in_pixels // 2) * 2
 
         # Write input to temp file since ffmpeg-python needs a file path
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as temp_input:
+            logger.debug(f"Created temp input file")
             temp_input.write(byte_stream.read())
             temp_input.flush()
 
             # Get input video information
+            logger.debug("Probing video information")
             probe = ffmpeg.probe(temp_input.name)
             video_info = next(s for s in probe["streams"] if s["codec_type"] == "video")
+            logger.debug(f"Video info: {video_info.get('width')}x{video_info.get('height')}")
 
             # Get dimensions considering rotation
             input_width = int(video_info["width"])
@@ -136,13 +140,11 @@ def _video_thumbnail_from_ffmpeg(
                 (width_in_pixels * input_height // input_width) // 2 * 2, 2
             )
 
-            logger.debug(
-                f"Input dimensions: {input_width}x{input_height}, rotation: {rotation}"
-            )
-            logger.debug(f"Output dimensions: {width_in_pixels}x{output_height}")
+            logger.debug(f"Video dimensions - Input: {input_width}x{input_height}, Output: {width_in_pixels}x{output_height}, Rotation: {rotation}")
 
             # Create temp output file
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as temp_output:
+                logger.debug(f"Created temp output file")
                 # Build the ffmpeg pipeline
                 stream = ffmpeg.input(temp_input.name).output(
                     temp_output.name,
@@ -161,11 +163,12 @@ def _video_thumbnail_from_ffmpeg(
                 # Run the ffmpeg command
                 logger.debug("Running ffmpeg command...")
                 ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
+                logger.debug("FFmpeg command completed successfully")
 
                 # Read the result
                 temp_output.seek(0)
                 result = temp_output.read()
-                logger.debug(f"Generated thumbnail video: size={len(result)} bytes")
+                logger.info(f"Generated thumbnail video: {len(result)} bytes")
                 return result
 
     except ffmpeg.Error as e:
@@ -266,25 +269,36 @@ def generate_from_presigned_url(
     original_mime_type: libression.entities.media.SupportedMimeType,
     width_in_pixels: int,
 ) -> bytes | None:
+    logger.info(f"Generating thumbnail from presigned URL for type: {original_mime_type}")
     if original_mime_type in libression.entities.media.AV_PROCESSING_MIME_TYPES:
-        return create_square_video_thumbnail_from_presigned_url(
+        logger.info("Processing video thumbnail")
+        result = create_square_video_thumbnail_from_presigned_url(
             presigned_url, width_in_pixels
         )
+        if result:
+            logger.info(f"Successfully generated video thumbnail: {len(result)} bytes")
+        else:
+            logger.error("Failed to generate video thumbnail")
+        return result
 
     # Not video, so handle as before
     byte_stream: typing.BinaryIO | None = None
     try:
+        logger.debug("Fetching content from presigned URL")
         response = httpx.get(presigned_url, verify=False, follow_redirects=True)
         response.raise_for_status()
         byte_stream = io.BytesIO(response.content)
 
         if original_mime_type in libression.entities.media.HEIC_PROCESSING_MIME_TYPES:
+            logger.debug("Processing HEIC thumbnail")
             return _heif_thumbnail_from_pillow(byte_stream, width_in_pixels)
         elif (
             original_mime_type
             in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES
         ):
+            logger.debug("Processing image thumbnail")
             return _image_thumbnail_from_opencv(byte_stream, width_in_pixels)
+        logger.warning(f"Unsupported MIME type: {original_mime_type}")
         return None
     finally:
         if byte_stream is not None:

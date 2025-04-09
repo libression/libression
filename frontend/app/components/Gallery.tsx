@@ -58,11 +58,36 @@ export default function Gallery({
     const loadThumbnailUrls = async () => {
       const urls: Record<string, string> = {};
       for (const file of displayedFiles) {
+        console.log("Processing file:", {
+          fileKey: file.file_key,
+          thumbnailKey: file.thumbnail_key,
+          mimeType: file.thumbnail_mime_type,
+          phash: file.thumbnail_phash,
+          isVideo: file.thumbnail_mime_type?.toLowerCase().includes("video"),
+        });
+
         if (file.file_key && file.thumbnail_key) {
           try {
+            console.log("Fetching thumbnail URL for:", file.thumbnail_key);
             const url = await apiService.getThumbnailUrl(file.thumbnail_key);
+            console.log("Received thumbnail URL:", {
+              thumbnailKey: file.thumbnail_key,
+              url,
+              success: url && url.trim().length > 0,
+            });
+
             if (url && url.trim().length > 0) {
               urls[file.file_key] = url;
+              console.log("Loaded thumbnail URL:", {
+                fileKey: file.file_key,
+                thumbnailKey: file.thumbnail_key,
+                url,
+                mimeType: file.thumbnail_mime_type,
+                phash: file.thumbnail_phash,
+                isVideo: file.thumbnail_mime_type
+                  ?.toLowerCase()
+                  .includes("video"),
+              });
             }
           } catch (error) {
             console.error(
@@ -70,6 +95,14 @@ export default function Gallery({
               error,
             );
           }
+        } else {
+          console.log("Missing thumbnail data:", {
+            fileKey: file.file_key,
+            thumbnailKey: file.thumbnail_key,
+            mimeType: file.thumbnail_mime_type,
+            phash: file.thumbnail_phash,
+            isVideo: file.thumbnail_mime_type?.toLowerCase().includes("video"),
+          });
         }
       }
       setThumbnailUrls((prev) => ({ ...prev, ...urls }));
@@ -127,24 +160,73 @@ export default function Gallery({
                 className="w-full h-full bg-cover bg-center"
                 style={{
                   backgroundImage:
-                    thumbnailUrl && file.thumbnail_phash
+                    thumbnailUrl &&
+                    file.thumbnail_phash &&
+                    !file.thumbnail_mime_type?.toLowerCase().includes("video")
                       ? `url(${thumbnailUrl})`
                       : "none",
                 }}
               >
-                {thumbnailUrl && file.thumbnail_phash ? (
-                  file.thumbnail_mime_type?.startsWith("image/gif") && (
-                    <img
-                      src={thumbnailUrl}
-                      alt={decodeURIComponent(
-                        file.file_key.split("/").pop() || "",
-                      )}
-                      className="w-full h-full object-cover hover:opacity-100 opacity-0 transition-opacity duration-300"
-                    />
-                  )
-                ) : (
-                  <BrokenImageIcon />
-                )}
+                {(() => {
+                  console.log("Rendering thumbnail:", {
+                    fileKey: file.file_key,
+                    thumbnailUrl,
+                    mimeType: file.thumbnail_mime_type,
+                    phash: file.thumbnail_phash,
+                    hasUrl: !!thumbnailUrl,
+                    hasPhash: !!file.thumbnail_phash,
+                    isVideo: file.thumbnail_mime_type
+                      ?.toLowerCase()
+                      .includes("video"),
+                  });
+
+                  if (!thumbnailUrl) {
+                    return <BrokenImageIcon />;
+                  }
+
+                  if (
+                    file.thumbnail_mime_type?.toLowerCase().includes("video")
+                  ) {
+                    return (
+                      <video
+                        src={thumbnailUrl}
+                        className="w-full h-full object-cover"
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        onError={(e) => {
+                          console.error("Video error:", {
+                            fileKey: file.file_key,
+                            thumbnailUrl,
+                            mimeType: file.thumbnail_mime_type,
+                            error: e,
+                          });
+                        }}
+                      />
+                    );
+                  }
+
+                  if (file.thumbnail_phash) {
+                    return (
+                      <img
+                        src={thumbnailUrl}
+                        className="w-full h-full object-cover"
+                        alt=""
+                        onError={(e) => {
+                          console.error("Image error:", {
+                            fileKey: file.file_key,
+                            thumbnailUrl,
+                            mimeType: file.thumbnail_mime_type,
+                            error: e,
+                          });
+                        }}
+                      />
+                    );
+                  }
+
+                  return <BrokenImageIcon />;
+                })()}
                 {/* Filename overlay */}
                 <div className="absolute bottom-0 left-0 right-0 p-2 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                   <p className="text-white text-xs truncate">

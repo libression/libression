@@ -25,6 +25,7 @@ RUN apt-get update && \
         libgl1-mesa-glx \
         libglib2.0-0 \
         curl \
+        ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
     && curl -sSL https://install.python-poetry.org | python3 - \
     && poetry config virtualenvs.create false

@@ -32,10 +32,6 @@ export const apiService = {
         `${data.base_url}/${data.paths[thumbnailKey]}`,
       );
 
-      // Ensure URL is HTTPS
-      if (!url.startsWith("https://")) {
-        return url.replace("http://", "https://");
-      }
       return url;
     } catch (error) {
       console.error("Error fetching thumbnail URL:", error);

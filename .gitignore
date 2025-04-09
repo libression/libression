@@ -41,7 +41,6 @@ Dockerfile
 docker-compose.yml
 
 # Frontend specific
-frontend/
 node_modules/
 .next/
 out/
