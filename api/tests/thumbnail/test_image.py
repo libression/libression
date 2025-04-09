@@ -40,61 +40,61 @@ def test_generate_image_thumbnail(media_fixture_by_filename, mime_type):
 
 # media_fixture_by_filename parameterized fixture
 @pytest.mark.parametrize(
-    "media_fixture_filename,mime_type,expected_fps,expected_duration,expected_min_frame_count",
+    "media_fixture_filename,mime_type,expected_fps,expected_duration,expected_frame_count",
     [
-        ("minimal.gif", libression.entities.media.SupportedMimeType.GIF, 2, 1, 2),
-        ("minimal.mp4", libression.entities.media.SupportedMimeType.MP4, 2, 1, 2),
-        ("minimal.mpeg", libression.entities.media.SupportedMimeType.MPEG, 2, 1, 2),
-        ("minimal.mov", libression.entities.media.SupportedMimeType.QUICKTIME, 2, 1, 2),
-        ("minimal.webm", libression.entities.media.SupportedMimeType.WEBM, 2, 1, 2),
+        ("minimal.gif", libression.entities.media.SupportedMimeType.GIF, 2, 2.0, 4),
+        ("minimal.mp4", libression.entities.media.SupportedMimeType.MP4, 2, 2.0, 4),
+        ("minimal.mpeg", libression.entities.media.SupportedMimeType.MPEG, 2, 2.0, 4),
+        ("minimal.mov", libression.entities.media.SupportedMimeType.QUICKTIME, 2, 2.0, 4),
+        ("minimal.webm", libression.entities.media.SupportedMimeType.WEBM, 2, 2.0, 4),
         (
             "minimal.avi",
             libression.entities.media.SupportedMimeType.X_MS_VIDEO,
             2,
-            1,
-            2,
+            2.0,
+            4,
         ),
         (
             "IMG_5059.mov",
             libression.entities.media.SupportedMimeType.QUICKTIME,
             2,
-            2.5,
-            5,
+            5.0,
+            10,
         ),
         (
             "minimal_15_frames.gif",
             libression.entities.media.SupportedMimeType.GIF,
             2,
-            3,
-            libression.config.THUMBNAIL_FRAME_COUNT,
+            3.0,
+            6,
         ),
         (
             "minimal_15_frames.mp4",
             libression.entities.media.SupportedMimeType.MP4,
             2,
-            5,
-            libression.config.THUMBNAIL_FRAME_COUNT,
+            3.0,
+            6,
         ),
         (
             "minimal_15_frames.mpeg",
             libression.entities.media.SupportedMimeType.MPEG,
             2,
-            5,
-            libression.config.THUMBNAIL_FRAME_COUNT,
+            3.0,
+            6,
         ),
         (
             "minimal_15_frames.mov",
             libression.entities.media.SupportedMimeType.QUICKTIME,
             2,
-            5,
-            libression.config.THUMBNAIL_FRAME_COUNT,
+            3.0,
+            6,
         ),
         (
             "minimal_15_frames.avi",
             libression.entities.media.SupportedMimeType.X_MS_VIDEO,
             2,
-            5,
-            libression.config.THUMBNAIL_FRAME_COUNT,
+            3.0,
+            6,
         ),
     ],
 )
@@ -103,7 +103,7 @@ def test_generate_video_thumbnail(
     mime_type,
     expected_fps,
     expected_duration,
-    expected_min_frame_count,
+    expected_frame_count,
     mock_http_file_server,
 ):
     # Generate the thumbnail
@@ -146,5 +146,5 @@ def test_generate_video_thumbnail(
         if "nb_frames" in video_info:
             frame_count = int(video_info["nb_frames"])
             assert (
-                frame_count >= expected_min_frame_count
-            ), f"Expected {expected_min_frame_count} frames, got {frame_count}"
+                frame_count == expected_frame_count
+            ), f"Expected {frame_count} frames, got {frame_count}"
