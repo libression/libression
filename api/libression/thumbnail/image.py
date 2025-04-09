@@ -110,7 +110,7 @@ def _video_thumbnail_from_ffmpeg(
 
         # Write input to temp file since ffmpeg-python needs a file path
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as temp_input:
-            logger.debug(f"Created temp input file")
+            logger.debug("Created temp input file")
             temp_input.write(byte_stream.read())
             temp_input.flush()
 
@@ -118,7 +118,9 @@ def _video_thumbnail_from_ffmpeg(
             logger.debug("Probing video information")
             probe = ffmpeg.probe(temp_input.name)
             video_info = next(s for s in probe["streams"] if s["codec_type"] == "video")
-            logger.debug(f"Video info: {video_info.get('width')}x{video_info.get('height')}")
+            logger.debug(
+                f"Video info: {video_info.get('width')}x{video_info.get('height')}"
+            )
 
             # Get dimensions considering rotation
             input_width = int(video_info["width"])
@@ -140,11 +142,13 @@ def _video_thumbnail_from_ffmpeg(
                 (width_in_pixels * input_height // input_width) // 2 * 2, 2
             )
 
-            logger.debug(f"Video dimensions - Input: {input_width}x{input_height}, Output: {width_in_pixels}x{output_height}, Rotation: {rotation}")
+            logger.debug(
+                f"Video dimensions - Input: {input_width}x{input_height}, Output: {width_in_pixels}x{output_height}, Rotation: {rotation}"
+            )
 
             # Create temp output file
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as temp_output:
-                logger.debug(f"Created temp output file")
+                logger.debug("Created temp output file")
                 # Build the ffmpeg pipeline
                 stream = ffmpeg.input(temp_input.name).output(
                     temp_output.name,
@@ -269,7 +273,9 @@ def generate_from_presigned_url(
     original_mime_type: libression.entities.media.SupportedMimeType,
     width_in_pixels: int,
 ) -> bytes | None:
-    logger.info(f"Generating thumbnail from presigned URL for type: {original_mime_type}")
+    logger.info(
+        f"Generating thumbnail from presigned URL for type: {original_mime_type}"
+    )
     if original_mime_type in libression.entities.media.AV_PROCESSING_MIME_TYPES:
         logger.info("Processing video thumbnail")
         result = create_square_video_thumbnail_from_presigned_url(

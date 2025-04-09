@@ -45,7 +45,13 @@ def test_generate_image_thumbnail(media_fixture_by_filename, mime_type):
         ("minimal.gif", libression.entities.media.SupportedMimeType.GIF, 2, 2.0, 4),
         ("minimal.mp4", libression.entities.media.SupportedMimeType.MP4, 2, 2.0, 4),
         ("minimal.mpeg", libression.entities.media.SupportedMimeType.MPEG, 2, 2.0, 4),
-        ("minimal.mov", libression.entities.media.SupportedMimeType.QUICKTIME, 2, 2.0, 4),
+        (
+            "minimal.mov",
+            libression.entities.media.SupportedMimeType.QUICKTIME,
+            2,
+            2.0,
+            4,
+        ),
         ("minimal.webm", libression.entities.media.SupportedMimeType.WEBM, 2, 2.0, 4),
         (
             "minimal.avi",

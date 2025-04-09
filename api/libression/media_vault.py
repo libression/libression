@@ -161,7 +161,9 @@ class MediaVault:
             original_mime_type=original_mime_type,
             width_in_pixels=self.thumbnail_width_in_pixels,
         )
-        logger.info(f"Generated thumbnail for {file_key} (size: {len(thumbnail_info.thumbnail) if thumbnail_info.thumbnail else 0} bytes)")
+        logger.info(
+            f"Generated thumbnail for {file_key} (size: {len(thumbnail_info.thumbnail) if thumbnail_info.thumbnail else 0} bytes)"
+        )
 
         return thumbnail_info, thumbnail_file
 

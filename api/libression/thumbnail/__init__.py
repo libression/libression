@@ -33,7 +33,7 @@ def generate_thumbnail_info(
         )
 
     # Skip phash and checksum for videos
-    if original_mime_type.value.startswith('video/'):
+    if original_mime_type.value.startswith("video/"):
         return ThumbnailInfo(
             thumbnail=thumbnail,
             phash=None,
