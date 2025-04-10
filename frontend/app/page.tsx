@@ -148,6 +148,7 @@ export default function App() {
         currentPath={currentPath}
         onRefresh={() => fetchDirectoryContents(currentPath)}
         files={files}
+        setSelectedFiles={setSelectedFiles}
       />
       <div className="flex items-center justify-between px-4 py-2 bg-gray-100">
         <div className="flex items-center">

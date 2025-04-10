@@ -7,6 +7,7 @@ interface ActionBarProps {
   currentPath: string;
   onRefresh: () => void;
   files: FileEntry[];
+  setSelectedFiles: (files: string[]) => void;
 }
 
 export default function ActionBar({
@@ -14,6 +15,7 @@ export default function ActionBar({
   currentPath,
   onRefresh,
   files,
+  setSelectedFiles,
 }: ActionBarProps) {
   const [targetDir, setTargetDir] = useState("");
 
@@ -68,6 +70,7 @@ export default function ActionBar({
 
       if (!response.error) {
         onRefresh();
+        setSelectedFiles([]);
       } else {
         console.error(`${action} action failed:`, response.error);
       }

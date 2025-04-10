@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import type { FileEntry, ListDirectoryObject } from "../../types";
 import { apiService } from "../services/api";
+import { createRoot } from "react-dom/client";
 
 // Fallback icon component for failed thumbnails
 const BrokenImageIcon = () => (
@@ -208,19 +209,25 @@ export default function Gallery({
                   }
 
                   if (file.thumbnail_phash) {
+                    const handleImageError = (
+                      e: React.SyntheticEvent<HTMLImageElement>,
+                    ) => {
+                      const img = e.target as HTMLImageElement;
+                      const container = img.parentElement;
+                      if (container) {
+                        container.innerHTML = "";
+                        const root = createRoot(container);
+                        root.render(<BrokenImageIcon />);
+                      }
+                    };
+
                     return (
                       <img
                         src={thumbnailUrl}
                         className="w-full h-full object-cover"
                         alt=""
-                        onError={(e) => {
-                          console.error("Image error:", {
-                            fileKey: file.file_key,
-                            thumbnailUrl,
-                            mimeType: file.thumbnail_mime_type,
-                            error: e,
-                          });
-                        }}
+                        crossOrigin="anonymous"
+                        onError={handleImageError}
                       />
                     );
                   }
@@ -228,8 +235,8 @@ export default function Gallery({
                   return <BrokenImageIcon />;
                 })()}
                 {/* Filename overlay */}
-                <div className="absolute bottom-0 left-0 right-0 p-2 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                  <p className="text-white text-xs truncate">
+                <div className="absolute bottom-0 left-0 right-0 p-1 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                  <p className="text-white text-[10px] break-words whitespace-normal">
                     {decodeURIComponent(file.file_key.split("/").pop() || "")}
                   </p>
                 </div>
