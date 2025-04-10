@@ -24,8 +24,8 @@ services:
 
   libression:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: libression.Dockerfile
     ports:
       - "8000:8000"
     environment:

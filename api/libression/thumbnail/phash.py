@@ -58,6 +58,7 @@ def phash_from_thumbnail(thumbnail_bytes: bytes, pixels: int = 4) -> str:
     Returns:
         Hash string, with multiple hashes separated by commas for GIFs
     """
+
     img: PIL.Image.Image | None = None
 
     try:

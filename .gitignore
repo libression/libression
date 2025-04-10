@@ -1,51 +1,111 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
+*.pyo
+*.pyd
 .Python
-
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
-*.egg
-
-# Virtual environments
-.env
 .venv/
 env/
 venv/
-
-# Testing
-.pytest_cache/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
 .coverage
 .coverage.*
 htmlcov/
-coverage.xml
+dist/
+build/
+*.egg-info/
 
-# Type checking
-.mypy_cache/
-.dmypy.json
-dmypy.json
-.ruff_cache/
+# Development/IDE
+.git
+.gitignore
+.idea
+.vscode
+*.swp
+*.swo
 
-# IDE
-.vscode/
-
-# SQLite database files
+# Database files
 *.db
 *.sqlite
 *.sqlite3
 
 # Project specific
-**/.minio.sys/
+data/
+tests/
+docs/
 
-# Frontend
-**/node_modules/
+# Docker specific
+.dockerignore
+Dockerfile
+docker-compose.yml
 
-# OpenAPI spec
-openapi.json
+# Frontend specific
+node_modules/
+.next/
+out/
+*.tsbuildinfo
 
-# macOS
+# Sample deployment (except for webdav service)
+sample_deployment/README.md
+
+# Database migrations
+api/libression/db/migrations/script.py.mako
+
+# Python Virtual environments
+.env*
+*.pnp/
+*.pnp.*
+*.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Python Testing & Coverage
+.pytest_cache/
+
+# Python Type checking & Linting
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+
+# Node.js & Frontend
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Next.js specific
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+
+# IDE & Editor
+*.swp
+*.swo
+
+# OS generated files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Generated files
+openapi.json
+*.pem

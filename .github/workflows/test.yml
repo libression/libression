@@ -26,28 +26,44 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python3 -
 
       - name: Install dependencies
-        run: poetry install
+        working-directory: api
+        run: |
+          pwd
+          ls -la
+          poetry install
 
       - name: Set up pre-commit
+        working-directory: api
         run: |
           poetry run pre-commit install
           poetry run pre-commit run --all-files
 
       - name: Start Docker services
         run: |
-          docker compose up -d
+          # Start WebDAV service
+          cd sample_deployment
+          docker compose up -d webdav
           # Wait for WebDAV to be ready
           timeout 60s bash -c 'until curl -k --fail https://localhost:8443/libression_photos/ -u $WEBDAV_USER:$WEBDAV_PASSWORD; do sleep 1; done'
           echo "WebDAV is ready!"
+          # Start main application
+          cd ..
+          docker compose -f sample_deployment/docker-compose.yml up -d libression
 
       - name: Run tests
+        working-directory: api
         run: poetry run pytest -v
 
       - name: Stop Docker services
         if: always() # Run even if tests fail
-        run: docker compose down
+        run: |
+          cd sample_deployment
+          docker compose down

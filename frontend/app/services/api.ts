@@ -32,11 +32,9 @@ export const apiService = {
         `${data.base_url}/${data.paths[thumbnailKey]}`,
       );
 
-      // Ensure URL is HTTPS
-      if (!url.startsWith("https://")) {
-        return url.replace("http://", "https://");
-      }
-      return url;
+      // Add a timestamp to the URL to prevent caching issues
+      const timestamp = new Date().getTime();
+      return `${url}${url.includes("?") ? "&" : "?"}_=${timestamp}`;
     } catch (error) {
       console.error("Error fetching thumbnail URL:", error);
       return "";
@@ -245,7 +243,13 @@ export const apiService = {
       if (!response.ok)
         throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      return this.transformWebDAVUrl(`${data.base_url}/${data.paths[fileKey]}`);
+      const url = this.transformWebDAVUrl(
+        `${data.base_url}/${data.paths[fileKey]}`,
+      );
+
+      // Add a timestamp to the URL to prevent caching issues
+      const timestamp = new Date().getTime();
+      return `${url}${url.includes("?") ? "&" : "?"}_=${timestamp}`;
     } catch (error) {
       console.error("Error fetching file URL:", error);
       return "";

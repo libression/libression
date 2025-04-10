@@ -1,11 +1,12 @@
 # Python
-__pycache__
-*.pyc
+__pycache__/
+*.py[cod]
 *.pyo
 *.pyd
 .Python
-.env
-.venv
+.venv/
+env/
+venv/
 pip-log.txt
 pip-delete-this-directory.txt
 .tox
@@ -33,3 +34,18 @@ build/
 data/
 tests/
 docs/
+
+# Docker specific
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# Frontend specific
+frontend/
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Sample deployment (except for webdav service)
+sample_deployment/README.md

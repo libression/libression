@@ -32,7 +32,15 @@ def generate_thumbnail_info(
             checksum=None,
         )
 
-    # At this point, thumbnail is not None or empty
+    # Skip phash and checksum for videos
+    if original_mime_type.value.startswith("video/"):
+        return ThumbnailInfo(
+            thumbnail=thumbnail,
+            phash=None,
+            checksum=None,
+        )
+
+    # For non-videos, generate phash and checksum
     phash = phash_from_thumbnail(thumbnail)
     checksum = hashlib.sha256(thumbnail).hexdigest()
 

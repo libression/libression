@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_CACHE_STATIC_SUFFIX = "thumbnail.jpg"
-DEFAULT_CACHE_DYNAMIC_SUFFIX = "thumbnail.gif"
+DEFAULT_CACHE_DYNAMIC_SUFFIX = "thumbnail.mp4"
 
 
 class _InterimFileProcessContext(typing.NamedTuple):
@@ -42,7 +42,7 @@ def _thumbnail_type_from_mime_type(
     if mime_type_enum in libression.entities.media.OPEN_CV_PROCESSING_MIME_TYPES:
         return libression.entities.media.SupportedMimeType.JPEG
     if mime_type_enum in libression.entities.media.AV_PROCESSING_MIME_TYPES:
-        return libression.entities.media.SupportedMimeType.GIF
+        return libression.entities.media.SupportedMimeType.MP4
 
     return None
 
@@ -66,7 +66,7 @@ def thumbnail_file_from_original_file(
             thumbnail_mime_type=thumbnail_mime_type,
             original_mime_type=mime_type,
         )
-    elif thumbnail_mime_type == libression.entities.media.SupportedMimeType.GIF:
+    elif thumbnail_mime_type == libression.entities.media.SupportedMimeType.MP4:
         return ThumbnailFile(
             key=f"{file_key}_{default_cache_dynamic_suffix}",
             thumbnail_mime_type=thumbnail_mime_type,
@@ -99,12 +99,7 @@ class MediaVault:
         libression.thumbnail.ThumbnailInfo,
         ThumbnailFile | None,
     ]:
-        """
-        Get original file stream ( and mime type enum )
-        Generate thumbnail
-        Save thumbnail (to cache, not DB)
-        """
-
+        logger.info(f"Generating thumbnail for file: {file_key}")
         readonly_url_response = self.data_io_handler.get_readonly_urls(
             [file_key],
             expires_in_seconds=presigned_url_expires_in_seconds,
@@ -113,6 +108,7 @@ class MediaVault:
         original_url = (
             f"{readonly_url_response.base_url}/{readonly_url_response.paths[file_key]}"
         )
+        logger.debug(f"Got readonly URL for {file_key}")
 
         url_header_response = httpx.head(
             original_url,
@@ -120,24 +116,24 @@ class MediaVault:
             follow_redirects=True,
         )
         try:
-            # TODO: handle the 404s outside of this function...
             url_header_response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            logger.error(f"Error getting thumbnail for file_key {file_key}: {e}")
+            logger.error(f"Error getting thumbnail for {file_key}: {e}")
             return libression.thumbnail.ThumbnailInfo(
                 thumbnail=None,
                 phash=None,
                 checksum=None,
-                raw_file_found=False,  # don't register to db at all?
+                raw_file_found=False,
             ), None
 
         original_mime_type = libression.entities.media.SupportedMimeType.best_guess(
             filename=file_key,
             given_mime_type_str=url_header_response.headers.get("content-type"),
         )
+        logger.debug(f"Detected MIME type for {file_key}: {original_mime_type}")
 
         if original_mime_type is None:
-            # skip thumbnail generation ...
+            logger.warning(f"Could not determine MIME type for {file_key}")
             return libression.thumbnail.ThumbnailInfo(
                 thumbnail=None,
                 phash=None,
@@ -147,9 +143,11 @@ class MediaVault:
         thumbnail_file = thumbnail_file_from_original_file(
             file_key=file_key,
             mime_type=original_mime_type,
-        )  # just to render the file name (correct extension)
+        )
+        logger.debug(f"Created thumbnail file info for {file_key}")
 
         if thumbnail_file is None:
+            logger.warning(f"Could not create thumbnail file for {file_key}")
             return libression.thumbnail.ThumbnailInfo(
                 thumbnail=None,
                 phash=None,
@@ -157,10 +155,14 @@ class MediaVault:
             ), None
 
         # Generate thumbnail
+        logger.debug(f"Generating thumbnail info for {file_key}")
         thumbnail_info = libression.thumbnail.generate_thumbnail_info(
             presigned_url=original_url,
             original_mime_type=original_mime_type,
             width_in_pixels=self.thumbnail_width_in_pixels,
+        )
+        logger.info(
+            f"Generated thumbnail for {file_key} (size: {len(thumbnail_info.thumbnail) if thumbnail_info.thumbnail else 0} bytes)"
         )
 
         return thumbnail_info, thumbnail_file
@@ -170,30 +172,36 @@ class MediaVault:
         thumbnail_info: libression.thumbnail.ThumbnailInfo,
         thumbnail_file: ThumbnailFile,
     ) -> None:
+        logger.info(f"Saving thumbnail to cache: {thumbnail_file.key}")
         if thumbnail_info.raw_file_found is False:
+            logger.error(f"Raw file not found for {thumbnail_file.key}")
             raise ValueError(
                 "Shouldn't be here...should already have been filtered out. "
                 f"Raw file not found for thumbnail_file {thumbnail_file.key}"
             )
 
         if (thumbnail_bytes := thumbnail_info.thumbnail) is None:
+            logger.error(f"Thumbnail_bytes not found for {thumbnail_file.key}")
             raise ValueError(
                 "Shouldn't be here...should already have been filtered out. "
                 f"Thumbnail_bytes not found for thumbnail_file {thumbnail_file.key}"
             )
 
+        logger.debug(f"Creating thumbnail stream for {thumbnail_file.key}")
         thumbnail_file_stream = libression.entities.io.FileStreamInfo(
             file_stream=io.BytesIO(thumbnail_bytes),
             mime_type=thumbnail_file.thumbnail_mime_type,
         )
 
         # Save thumbnail
+        logger.debug(f"Uploading thumbnail to cache: {thumbnail_file.key}")
         await self.cache_io_handler.upload(
             libression.entities.io.FileStreamInfos(
                 {thumbnail_file.key: thumbnail_file_stream}
             ),
             chunk_byte_size=self.chunk_byte_size,
         )
+        logger.info(f"Successfully saved thumbnail to cache: {thumbnail_file.key}")
 
     async def get_files_info(
         self,
