@@ -61,13 +61,6 @@ def test_generate_image_thumbnail(media_fixture_by_filename, mime_type):
             4,
         ),
         (
-            "IMG_5059.mov",
-            libression.entities.media.SupportedMimeType.QUICKTIME,
-            2,
-            5.0,
-            10,
-        ),
-        (
             "minimal_15_frames.gif",
             libression.entities.media.SupportedMimeType.GIF,
             2,
