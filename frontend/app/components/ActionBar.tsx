@@ -18,10 +18,13 @@ export default function ActionBar({
   setSelectedFiles,
 }: ActionBarProps) {
   const [targetDir, setTargetDir] = useState("");
+  const [filesToUpload, setFilesToUpload] = useState<File[]>([]);
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files) return;
+
+    setFilesToUpload(Array.from(files));
 
     try {
       const response = await apiService.uploadFiles(
@@ -30,11 +33,14 @@ export default function ActionBar({
       );
       if (!response.error) {
         onRefresh();
+        setFilesToUpload([]);
       } else {
         console.error("Upload failed:", response.error);
+        setFilesToUpload([]);
       }
     } catch (error) {
       console.error("Error uploading files:", error);
+      setFilesToUpload([]);
     }
   };
 
@@ -82,7 +88,20 @@ export default function ActionBar({
   return (
     <div className="bg-gray-200 p-4 flex items-center justify-between">
       <div>
-        <input type="file" multiple onChange={handleUpload} className="mr-4" />
+        <label className="bg-blue-500 text-white px-4 py-2 rounded mr-2 cursor-pointer">
+          Upload Files
+          <input 
+            type="file" 
+            multiple 
+            onChange={handleUpload} 
+            className="hidden" 
+          />
+        </label>
+        {filesToUpload.length > 0 && (
+          <span className="text-gray-800 ml-2">
+            {filesToUpload.length} file{filesToUpload.length > 1 ? 's' : ''} to upload
+          </span>
+        )}
         <button
           onClick={() => handleAction("copy")}
           className="bg-blue-500 text-white px-4 py-2 rounded mr-2"
@@ -108,9 +127,9 @@ export default function ActionBar({
           value={targetDir}
           onChange={(e) => setTargetDir(e.target.value)}
           placeholder="Target directory"
-          className="border rounded px-2 py-1 mr-2 text-black"
+          className="border rounded px-2 py-1 mr-2 text-black placeholder-gray-500"
         />
-        <span>{selectedFiles.length} items selected</span>
+        <span className="text-gray-800">{selectedFiles.length} items selected</span>
       </div>
     </div>
   );

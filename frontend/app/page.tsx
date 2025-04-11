@@ -158,7 +158,7 @@ export default function App() {
             onChange={(e) => setShowDirectories(e.target.checked)}
             className="mr-2"
           />
-          <label>Show Directories</label>
+          <label className="text-gray-800">Show Directories</label>
         </div>
         <input
           type="range"
