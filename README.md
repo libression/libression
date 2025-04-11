@@ -8,7 +8,7 @@
 
 ## Overview
 This codebase contains 2 main components:
-- [libression API](./libression/) (RPC-style API)
+- [libression API](./api/) (RPC-style API)
   - depends on an accessible server that can process [webdav protocol](https://en.wikipedia.org/wiki/WebDAV) to interact with files/folders
 - [frontend webapp](./frontend/)
 
