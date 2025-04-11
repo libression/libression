@@ -17,9 +17,20 @@ This codebase contains 2 main components:
   - For a sample setup see [here](./sample_deployment/README.md)
 - Deploy the libression API (with appropriate permissions to access the storage server)
   - e.g. for linux Fedora:
-    - Install encodings (`sudo dnf install ffmpeg ffmpeg-devel libheif libffi libheif-devel libde265-devel`)
-    - Set up python env with poetry (cd into directory and do `poetry install`)
-    - Run app with command `poetry run python main.py`
+    - ```
+      # Install dependencies
+      sudo dnf install ffmpeg ffmpeg-devel libheif libffi libheif-devel libde265-devel
+
+      # cd into api directory
+      cd api
+      
+      # Set up python env with poetry
+      poetry install
+      
+      # Run app (dev mode...for prod mode use uvicorn)
+      poetry run python main.py
+      ```
+
 - Deploy the frontend web app (with appropriate permissions to access both libression API and storage servers)
   - ```
     # starting from repo root (assuming npm is installed)
