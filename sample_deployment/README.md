@@ -70,7 +70,7 @@
   brew install nginx --with-dav
   brew install httpd
   ```
-- Modify `/opt/homebrew/etc/nginx/nginx.conf` correspondingly (refer to [`samples/mac_nginx.conf`](samples/mac_nginx.conf))
+- Modify `/opt/homebrew/etc/nginx/nginx.conf` correspondingly (refer to `mac_nginx.conf` in the repo)
 - Setup and run nginx
   ``` bash
   nginx -t  # test the configs are working
