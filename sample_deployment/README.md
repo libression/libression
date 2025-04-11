@@ -14,7 +14,7 @@
   - Install secure link nginx `sudo dnf install 'nginx-mod*'`
   - Configure nginx
     - Modify the `/etc/nginx/conf.d/webdav.conf` file
-      - Only the `server` block is required (refer to [`samples/linux_webdav.conf`](samples/linux_webdav.conf))
+      - Only the `server` block is required (refer to `linux_webdav.conf` in the repo)
       - The rest should be in `/etc/nginx/nginx.conf` (comment out the server block if it clashes)
     - run `sudo nginx -t` to test the configs are working
   - Create folders + permissions
@@ -74,7 +74,7 @@
 - Setup and run nginx
   ``` bash
   nginx -t  # test the configs are working
-  sudo htpasswd -c /usr/local/etc/nginx/.htpasswd chilledgeek  # prompts for password (chilledgeek?)
+  sudo htpasswd -c /usr/local/etc/nginx/.htpasswd <libression_user>  # prompts for password, which you then give, e.g. <libression_password>
 
   brew services restart nginx
   nginx -t
