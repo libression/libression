@@ -1,4 +1,6 @@
 # libression
+![image](https://github.com/user-attachments/assets/a27d487c-1af7-42d2-8e81-0ab05aefc4f5)
+
 ## About this project
 - Self-hosting media organiser
 - Meaning behind the name Libression (term coined by [@yaxxie](https://github.com/yaxxie)):
